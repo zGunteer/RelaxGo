@@ -2,15 +2,17 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { UserProvider } from "@/context/UserContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { useEffect } from "react";
-import { saveCurrentRoute, getLastRoute, updateLastActiveTimestamp } from "@/services/AppStateService";
+import { saveCurrentRoute, updateLastActiveTimestamp } from "@/services/AppStateService";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import SplashScreen from "./pages/SplashScreen";
 import AuthScreen from "./pages/AuthScreen";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import UpdatePasswordPage from "./pages/UpdatePasswordPage";
 import HomeScreen from "./pages/HomeScreen";
 import BookingScreen from "./pages/BookingScreen";
 import PaymentScreen from "./pages/PaymentScreen";
@@ -32,7 +34,6 @@ const queryClient = new QueryClient();
 // Component to handle route tracking and app state restoration
 const RouteTracker = () => {
   const location = useLocation();
-  const navigate = useNavigate();
   
   // Save the current route whenever it changes
   useEffect(() => {
@@ -62,26 +63,9 @@ const RouteTracker = () => {
       window.removeEventListener('touchstart', handleActivity);
       window.removeEventListener('keypress', handleActivity);
       window.removeEventListener('scroll', handleActivity);
+      document.removeEventListener('visibilitychange', handleActivity);
     };
   }, [location]);
-  
-  // Check for a saved route when the app starts - but only on the index page (not splash)
-  useEffect(() => {
-    // Only check for saved route on the index page
-    // This prevents interfering with the splash screen timer
-    if (location.pathname === '/') {
-      const lastRoute = getLastRoute();
-      if (lastRoute) {
-        // Navigate to the last route directly from index, but don't interfere with splash screen
-        setTimeout(() => {
-          navigate(lastRoute);
-        }, 500);
-      } else {
-        // If no saved route, go to splash screen
-        navigate('/splash');
-      }
-    }
-  }, [navigate, location.pathname]);
   
   return null;
 };
@@ -100,6 +84,8 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/splash" element={<SplashScreen />} />
               <Route path="/auth" element={<AuthScreen />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/update-password" element={<UpdatePasswordPage />} />
               <Route path="/unauthorized" element={<UnauthorizedScreen />} />
               
               {/* All routes are now public */}

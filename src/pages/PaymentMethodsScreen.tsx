@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, CreditCard, Smartphone, Plus, X, Check } from 'lucide-react';
 import NavBar from '@/components/NavBar';
 import { toast } from 'sonner';
+import { useUser } from '@/context/UserContext';
 
 const PaymentMethod = ({ icon: Icon, title, subtitle, isSelected, onClick }) => (
   <button
@@ -28,13 +29,20 @@ const PaymentMethod = ({ icon: Icon, title, subtitle, isSelected, onClick }) => 
   </button>
 );
 
-const NewCardForm = ({ onCancel, onSave }) => {
+const NewCardForm = ({ onCancel, onSave, userFullName }) => {
   const [cardDetails, setCardDetails] = useState({
     number: '',
     name: '',
     expiry: '',
     cvv: ''
   });
+
+  // Pre-fill with user's name if available
+  useEffect(() => {
+    if (userFullName) {
+      setCardDetails(prev => ({ ...prev, name: userFullName }));
+    }
+  }, [userFullName]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -78,7 +86,7 @@ const NewCardForm = ({ onCancel, onSave }) => {
           <input
             type="text"
             name="name"
-            placeholder="John Doe"
+            placeholder={userFullName || "Enter your name"}
             value={cardDetails.name}
             onChange={handleInputChange}
             className="w-full p-2 border border-gray-300 rounded-md"
@@ -125,6 +133,7 @@ const NewCardForm = ({ onCancel, onSave }) => {
 const PaymentMethodsScreen = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { userInfo } = useUser(); // Get user info
   const { returnTo, selectedPaymentId, ...otherState } = location.state || {};
   const [selectedMethod, setSelectedMethod] = useState(null);
   const [showAddCard, setShowAddCard] = useState(false);
@@ -217,6 +226,7 @@ const PaymentMethodsScreen = () => {
           <NewCardForm 
             onCancel={() => setShowAddCard(false)}
             onSave={handleSaveCard}
+            userFullName={userInfo.name} // Pass user's name to form
           />
         ) : (
           <>

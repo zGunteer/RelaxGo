@@ -3,21 +3,48 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
 import NavBar from '@/components/NavBar';
 import { useUser } from '@/context/UserContext';
+import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
 const PersonalInfoScreen = () => {
   const navigate = useNavigate();
   const { userInfo, updateUserInfo } = useUser();
+  const { updateProfile, user } = useAuth();
   const [formData, setFormData] = useState(userInfo);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setFormData(userInfo);
   }, [userInfo]);
 
-  const handleSave = () => {
-    updateUserInfo(formData);
-    toast.success('Personal information updated successfully');
-    navigate('/profile');
+  const handleSave = async () => {
+    try {
+      setLoading(true);
+      
+      // First, extract first name and last name from the full name
+      const nameParts = formData.name.trim().split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      // Update Supabase via AuthContext
+      await updateProfile({
+        firstName,
+        lastName,
+        phoneNumber: formData.phone
+        // Note: Email updates might require additional steps via Auth API
+      });
+      
+      // Update local state via UserContext
+      updateUserInfo(formData);
+      
+      toast.success('Personal information updated successfully');
+      navigate('/profile');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      toast.error('Failed to update profile information');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -33,7 +60,8 @@ const PersonalInfoScreen = () => {
         <h1 className="text-lg font-semibold text-gray-900 ml-4">Personal Information</h1>
         <button
           onClick={handleSave}
-          className="ml-auto text-blue-600 hover:text-blue-700"
+          disabled={loading}
+          className={`ml-auto ${loading ? 'text-gray-400' : 'text-blue-600 hover:text-blue-700'}`}
         >
           <Save className="h-5 w-5" />
         </button>
@@ -49,7 +77,9 @@ const PersonalInfoScreen = () => {
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              disabled={loading}
             />
+            <p className="mt-1 text-xs text-gray-500">First and last name</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Phone Number</label>
@@ -58,6 +88,7 @@ const PersonalInfoScreen = () => {
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              disabled={loading}
             />
           </div>
           <div>
@@ -67,7 +98,9 @@ const PersonalInfoScreen = () => {
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              disabled={true} // Email updates require additional auth steps, so disable for now
             />
+            <p className="mt-1 text-xs text-gray-500">Email address cannot be changed directly</p>
           </div>
         </div>
       </div>

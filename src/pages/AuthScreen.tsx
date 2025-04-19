@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,31 +7,74 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { motion } from 'framer-motion';
 import { Facebook, Mail, Lock, User, Phone } from 'lucide-react';
+import { FcGoogle } from "react-icons/fc";
 import { useAuth } from '@/context/AuthContext';
 import { LoginInput, RegisterInput, SocialProvider, UserRole } from '@/services/AuthService';
+import { supabase } from '../lib/supabaseClient';
 
 const AuthScreen = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { login, register, socialLogin, loading } = useAuth();
+  const { login, register, socialLogin, loading: authLoading, isAuthenticated, user } = useAuth();
+  
+  // Local loading states for buttons
+  const [loginButtonLoading, setLoginButtonLoading] = useState(false);
+  const [registerButtonLoading, setRegisterButtonLoading] = useState(false);
+  const [socialButtonLoading, setSocialButtonLoading] = useState(false);
   
   // Get the return URL from location state or default to home
   const from = (location.state as any)?.from || '/home';
   
+  // Handle redirect after social login - with direct Supabase session check
+  useEffect(() => {
+    console.log('Auth state check:', { isAuthenticated, user, authLoading });
+    
+    // First check - Use the context state if available
+    if (isAuthenticated && user) {
+      console.log('User authenticated via context state, redirecting to home');
+      navigate('/home', { replace: true });
+      return;
+    }
+    
+    // Second check - Check if there's a Google OAuth redirect happening
+    const isOAuthRedirect = window.location.hash.includes('access_token') || 
+                          new URLSearchParams(window.location.search).has('access_token') ||
+                          localStorage.getItem('attemptingSocialLogin') === 'true';
+    
+    if (isOAuthRedirect || localStorage.getItem('attemptingSocialLogin')) {
+      console.log('Detected OAuth redirect or social login attempt');
+      
+      // Directly check Supabase session - don't rely only on the context
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session) {
+          console.log('Found active session on OAuth redirect, redirecting to home');
+          localStorage.removeItem('attemptingSocialLogin');
+          navigate('/home', { replace: true });
+        } else {
+          console.log('No session found on OAuth redirect');
+          localStorage.removeItem('attemptingSocialLogin');
+        }
+      }).catch(error => {
+        console.error('Error checking session:', error);
+        localStorage.removeItem('attemptingSocialLogin');
+      });
+    }
+  }, [isAuthenticated, user, navigate, authLoading]);
+  
   // Login form state - simplified
   const [loginData, setLoginData] = useState<LoginInput>({
-    email: 'demo@example.com',
-    password: 'password'
+    email: '',
+    password: ''
   });
   
   // Register form state - simplified
   const [registerData, setRegisterData] = useState<RegisterInput>({
-    email: 'demo@example.com',
-    password: 'password',
-    firstName: 'Demo',
-    lastName: 'User',
-    phoneNumber: '555-1234',
+    email: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+    phoneNumber: '',
     role: UserRole.CLIENT
   });
   
@@ -53,23 +96,52 @@ const AuthScreen = () => {
     }));
   };
   
-  // Handle quick login - simplified to go directly to home
+  // Handle quick login 
   const handleQuickLogin = async () => {
     try {
+      setLoginButtonLoading(true);
       await login(loginData);
-      navigate('/home');
-    } catch (err) {
+      // Explicitly navigate to home page after successful login
+      navigate(from, { replace: true }); 
+      toast({ title: "Login Successful" });
+    } catch (err: any) {
       toast({
         title: "Login Failed",
-        description: "Please try again.",
+        description: err.message || "Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setLoginButtonLoading(false);
+    }
+  };
+  
+  // Handle social login click
+  const handleSocialLoginClick = async (provider: SocialProvider) => {
+    try {
+      setSocialButtonLoading(true);
+      console.log(`Initiating login with ${provider}`);
+      
+      // Set the flag before redirecting - we'll check this when redirected back
+      localStorage.setItem('attemptingSocialLogin', 'true');
+      
+      await socialLogin(provider);
+      // Redirect will happen automatically via Supabase
+    } catch (err: any) {
+      console.error('Social login error:', err);
+      localStorage.removeItem('attemptingSocialLogin');
+      toast({
+        title: "Social Login Failed",
+        description: err.message || `Failed to initiate login with ${provider}. Please try again.`,
+        variant: "destructive"
+      });
+      setSocialButtonLoading(false);
     }
   };
   
   // Handle quick registration
   const handleQuickRegister = async () => {
     try {
+      setRegisterButtonLoading(true);
       await register(registerData);
       navigate('/home');
     } catch (err) {
@@ -78,6 +150,8 @@ const AuthScreen = () => {
         description: "Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setRegisterButtonLoading(false);
     }
   };
   
@@ -131,7 +205,9 @@ const AuthScreen = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <Label htmlFor="password">Password</Label>
-                    <a href="#" className="text-sm text-cyan-600">Forgot password?</a>
+                    <Link to="/forgot-password" className="text-sm text-cyan-600 hover:text-cyan-500">
+                      Forgot password?
+                    </Link>
                   </div>
                   <div className="relative">
                     <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
@@ -150,10 +226,10 @@ const AuthScreen = () => {
                 <Button 
                   type="button" 
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6"
-                  disabled={loading}
+                  disabled={loginButtonLoading}
                   onClick={handleQuickLogin}
                 >
-                  {loading ? 'Logging in...' : 'Quick Login'}
+                  {loginButtonLoading ? 'Logging in...' : 'Login'}
                 </Button>
                 
                 <div className="relative my-6">
@@ -169,11 +245,12 @@ const AuthScreen = () => {
                   <Button 
                     type="button" 
                     variant="outline" 
-                    className="bg-blue-50 text-blue-800 hover:bg-blue-100"
-                    onClick={() => navigate('/home')}
+                    className="justify-center"
+                    onClick={() => handleSocialLoginClick(SocialProvider.GOOGLE)}
+                    disabled={socialButtonLoading}
                   >
-                    <Facebook className="mr-2 h-4 w-4" />
-                    Skip Login
+                    <FcGoogle className="mr-2 h-4 w-4" />
+                    Continue with Google
                   </Button>
                 </div>
               </div>
@@ -258,11 +335,11 @@ const AuthScreen = () => {
                 
                 <Button 
                   type="button" 
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6"
-                  disabled={loading}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 mt-4"
+                  disabled={registerButtonLoading}
                   onClick={handleQuickRegister}
                 >
-                  {loading ? 'Registering...' : 'Quick Register'}
+                  {registerButtonLoading ? 'Registering...' : 'Register'}
                 </Button>
                 
                 <div className="relative my-6">
