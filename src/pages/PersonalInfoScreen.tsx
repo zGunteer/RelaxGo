@@ -1,51 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import NavBar from '@/components/NavBar';
 import { useUser } from '@/context/UserContext';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
+
+// Import UI components
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+
+// Simple email validation regex
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Phone number validation regex (simple version)
+const PHONE_REGEX = /^\+?[0-9]{7,15}$/;
 
 const PersonalInfoScreen = () => {
   const navigate = useNavigate();
-  const { userInfo, updateUserInfo } = useUser();
-  const { updateProfile, user } = useAuth();
-  const [formData, setFormData] = useState(userInfo);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setFormData(userInfo);
-  }, [userInfo]);
-
-  const handleSave = async () => {
-    try {
-      setLoading(true);
-      
-      // First, extract first name and last name from the full name
-      const nameParts = formData.name.trim().split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      
-      // Update Supabase via AuthContext
-      await updateProfile({
-        firstName,
-        lastName,
-        phoneNumber: formData.phone
-        // Note: Email updates might require additional steps via Auth API
-      });
-      
-      // Update local state via UserContext
-      updateUserInfo(formData);
-      
-      toast.success('Personal information updated successfully');
-      navigate('/profile');
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      toast.error('Failed to update profile information');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { userInfo, loading: userLoading } = useUser();
+  
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -58,51 +36,89 @@ const PersonalInfoScreen = () => {
           <ArrowLeft className="h-5 w-5 text-gray-600" />
         </button>
         <h1 className="text-lg font-semibold text-gray-900 ml-4">Personal Information</h1>
-        <button
-          onClick={handleSave}
-          disabled={loading}
-          className={`ml-auto ${loading ? 'text-gray-400' : 'text-blue-600 hover:text-blue-700'}`}
-        >
-          <Save className="h-5 w-5" />
-        </button>
       </div>
 
-      {/* Form */}
+      {/* Form Content */}
       <div className="flex-1 p-4">
-        <div className="bg-white rounded-lg p-4 space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Name</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              disabled={loading}
-            />
-            <p className="mt-1 text-xs text-gray-500">First and last name</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Phone Number</label>
-            <input
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              disabled={loading}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              disabled={true} // Email updates require additional auth steps, so disable for now
-            />
-            <p className="mt-1 text-xs text-gray-500">Email address cannot be changed directly</p>
-          </div>
-        </div>
+        <Card className="border-none shadow-sm">
+          {userLoading ? (
+            <CardContent className="pt-6 flex justify-center items-center min-h-[200px]">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <span className="ml-2 text-gray-600">Loading your information...</span>
+            </CardContent>
+          ) : (
+            <>
+              {error && (
+                <CardContent className="pt-6 pb-0">
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                </CardContent>
+              )}
+              
+              <CardContent className="space-y-6 pt-6">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">
+                    First Name
+                  </Label>
+                  <Input
+                    id="firstName"
+                    name="firstName"
+                    value={userInfo.firstName || ''}
+                    className="bg-gray-100"
+                    readOnly
+                    placeholder="-"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">
+                    Last Name
+                  </Label>
+                  <Input
+                    id="lastName"
+                    name="lastName"
+                    value={userInfo.lastName || ''}
+                    className="bg-gray-100"
+                    readOnly
+                    placeholder="-"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="phone">
+                    Phone Number
+                  </Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    value={userInfo.phone || ''}
+                    className="bg-gray-100"
+                    readOnly
+                    placeholder="-"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="email">
+                    Email
+                  </Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    value={userInfo.email || ''}
+                    className="bg-gray-100"
+                    readOnly
+                    placeholder="-"
+                  />
+                  <p className="text-xs text-gray-500">Email address cannot be changed here</p>
+                </div>
+              </CardContent>
+            </>
+          )}
+        </Card>
       </div>
 
       <NavBar />

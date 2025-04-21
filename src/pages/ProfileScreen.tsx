@@ -10,11 +10,13 @@ import {
   ChevronRight,
   Camera,
   UserCircle,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import NavBar from '@/components/NavBar';
 import { useUser } from '@/context/UserContext';
 import { toast } from 'sonner';
+import { useAuth } from '@/context/AuthContext';
 
 const ProfileMenuItem = ({ icon: Icon, label, onClick }) => (
   <button
@@ -33,7 +35,8 @@ const ProfileScreen = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const [profileImage, setProfileImage] = useState(null);
-  const { userInfo } = useUser();
+  const { userInfo, loading: userLoading } = useUser();
+  const { logout } = useAuth();
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -46,9 +49,15 @@ const ProfileScreen = () => {
     }
   };
 
-  const handleLogout = () => {
-    // Add logout logic here
-    navigate('/auth');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      toast.success('Logged out successfully');
+      navigate('/auth', { replace: true });
+    } catch (error) {
+      toast.error('Failed to log out');
+      console.error('Logout error:', error);
+    }
   };
 
   const handleDeleteAccount = () => {
@@ -66,7 +75,9 @@ const ProfileScreen = () => {
         <div className="flex items-center">
           <div className="relative">
             <div className="h-20 w-20 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-              {profileImage ? (
+              {userLoading ? (
+                <Loader2 className="h-10 w-10 text-gray-500 animate-spin" />
+              ) : profileImage ? (
                 <img 
                   src={profileImage} 
                   alt="Profile" 
@@ -91,8 +102,19 @@ const ProfileScreen = () => {
             />
           </div>
           <div className="ml-4">
-            <h1 className="text-xl font-semibold text-gray-900">{userInfo.name}</h1>
-            <p className="text-sm text-gray-500">{userInfo.email}</p>
+            {userLoading ? (
+              <div className="space-y-2">
+                <div className="h-4 bg-gray-200 rounded w-3/4 animate-pulse"></div>
+                <div className="h-3 bg-gray-200 rounded w-1/2 animate-pulse"></div>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-xl font-semibold text-gray-900">
+                  {`${userInfo.firstName || ''} ${userInfo.lastName || ''}`.trim() || 'User'}
+                </h1>
+                <p className="text-sm text-gray-500">{userInfo.email || 'No email'}</p>
+              </>
+            )}
           </div>
         </div>
       </div>

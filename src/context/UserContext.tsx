@@ -2,14 +2,16 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 
 interface UserInfo {
-  name: string;
+  firstName: string;
+  lastName: string;
   phone: string;
   email: string;
 }
 
 interface UserContextType {
   userInfo: UserInfo;
-  updateUserInfo: (info: UserInfo) => void;
+  updateUserInfo: (info: Partial<UserInfo>) => void;
+  loading: boolean;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -17,43 +19,49 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export const UserProvider = ({ children }) => {
   // Default initial state with empty values
   const [userInfo, setUserInfo] = useState<UserInfo>({
-    name: '',
+    firstName: '',
+    lastName: '',
     phone: '',
     email: ''
   });
 
   // Get authentication info from AuthContext
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
 
   // Update userInfo when auth user changes
   useEffect(() => {
     if (isAuthenticated && user) {
-      // Format the name from firstName and lastName
-      const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
-      
+      // Use firstName and lastName directly from AuthContext's user object
       setUserInfo({
-        name: fullName,
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
         phone: user.phoneNumber || '',
         email: user.email || ''
       });
       
-      console.log('UserContext: Updated user info from auth context', { fullName, email: user.email });
+      console.log('UserContext: Updated user info from auth context', { 
+        firstName: user.firstName, 
+        lastName: user.lastName, 
+        email: user.email 
+      });
     } else {
       // Reset to default when logged out
       setUserInfo({
-        name: '',
+        firstName: '',
+        lastName: '',
         phone: '',
         email: ''
       });
     }
   }, [user, isAuthenticated]);
 
-  const updateUserInfo = (info: UserInfo) => {
-    setUserInfo(info);
+  // Allow updating with partial info
+  const updateUserInfo = (info: Partial<UserInfo>) => {
+    setUserInfo(prev => ({ ...prev, ...info }));
   };
 
   return (
-    <UserContext.Provider value={{ userInfo, updateUserInfo }}>
+    <UserContext.Provider value={{ userInfo, updateUserInfo, loading: authLoading }}>
       {children}
     </UserContext.Provider>
   );
