@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Menu, Search, MapPin, List, Info, UserCircle, Briefcase, CreditCard, Lock, Calendar } from 'lucide-react';
 import NavBar from '../components/NavBar';
@@ -6,6 +6,7 @@ import Map from '../components/Map';
 import { cn } from '../lib/utils';
 import { useUser } from '../context/UserContext';
 import { isMasseurRegistered } from '@/services/MasseurService';
+import { supabase } from '@/lib/supabaseClient';
 
 // Add Popover imports
 import {
@@ -138,80 +139,34 @@ const MassageTypeButton: React.FC<MassageTypeButtonProps> = ({
   );
 };
 
-const exampleMasseurs = [
-  {
-    name: "Alex Johnson",
-    rating: "4.9",
-    specialty: "Deep Tissue",
-    price: 89,
-    distance: "1.2 miles",
-    available: true,
-    position: { lat: 44.4458, lng: 26.0936 }
-  },
-  {
-    name: "Maria Garcia",
-    rating: "4.8",
-    specialty: "Swedish",
-    price: 75,
-    distance: "0.8 miles",
-    available: true,
-    position: { lat: 44.4378, lng: 26.1026 }
-  },
-  {
-    name: "Daniel Kim",
-    rating: "4.7",
-    specialty: "Sports",
-    price: 95,
-    distance: "1.5 miles",
-    available: false,
-    position: { lat: 44.4268, lng: 26.1225 }
-  },
-  {
-    name: "Sophie Chen",
-    rating: "4.9",
-    specialty: "Deep Tissue",
-    price: 85,
-    distance: "0.9 miles",
-    available: true,
-    position: { lat: 44.4328, lng: 26.0956 }
-  },
-  {
-    name: "Marco Rossi",
-    rating: "4.6",
-    specialty: "Swedish",
-    price: 80,
-    distance: "1.1 miles",
-    available: true,
-    position: { lat: 44.4418, lng: 26.1126 }
-  },
-  {
-    name: "Yuki Tanaka",
-    rating: "5.0",
-    specialty: "Shiatsu",
-    price: 95,
-    distance: "1.6 miles",
-    available: true,
-    position: { lat: 44.4498, lng: 26.0926 }
-  },
-  {
-    name: "Emma Laurent",
-    rating: "4.8",
-    specialty: "Aromatherapy",
-    price: 90,
-    distance: "1.0 miles",
-    available: false,
-    position: { lat: 44.4338, lng: 26.1146 }
-  },
-  {
-    name: "Michael Stevens",
-    rating: "4.9",
-    specialty: "Lymphatic",
-    price: 100,
-    distance: "1.3 miles",
-    available: true,
-    position: { lat: 44.4358, lng: 26.0986 }
-  }
-];
+// Interface for masseur data from database
+interface DatabaseMasseur {
+  masseuse_id: string;
+  bio: string;
+  location_lat: number;
+  location_long: number;
+  is_available: boolean;
+  massage_types: string[];
+  users: {
+    first_name: string;
+    last_name: string;
+  } | null;
+}
+
+// Interface for Map component
+interface MapMasseur {
+  id: string;
+  name: string;
+  rating: string;
+  specialty: string;
+  price: number;
+  distance: string;
+  available: boolean;
+  position: {
+    lat: number;
+    lng: number;
+  };
+}
 
 const HomeScreen = () => {
   const navigate = useNavigate();
@@ -220,6 +175,184 @@ const HomeScreen = () => {
   const typeScrollRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const { userInfo } = useUser();
+  const [isMasseurApproved, setIsMasseurApproved] = useState<boolean>(false);
+  const [checkingMasseurStatus, setCheckingMasseurStatus] = useState<boolean>(true);
+  const [masseurs, setMasseurs] = useState<MapMasseur[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Function to calculate distance between two coordinates (simplified)
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): string => {
+    const R = 6371; // Radius of the Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c;
+    
+    if (distance < 1) {
+      return `${(distance * 1000).toFixed(0)}m`;
+    } else {
+      return `${distance.toFixed(1)}km`;
+    }
+  };
+
+  // Function to transform database masseur to Map masseur format
+  const transformMasseurData = (dbMasseur: DatabaseMasseur, userLat?: number, userLng?: number): MapMasseur => {
+    const distance = userLat && userLng 
+      ? calculateDistance(userLat, userLng, dbMasseur.location_lat, dbMasseur.location_long)
+      : "N/A";
+
+    // Get primary massage type for specialty
+    const primaryMassageType = dbMasseur.massage_types && dbMasseur.massage_types.length > 0 
+      ? dbMasseur.massage_types[0] 
+      : "General Massage";
+
+    return {
+      id: dbMasseur.masseuse_id,
+      name: `${dbMasseur.users.first_name} ${dbMasseur.users.last_name}`,
+      rating: "4.5", // Default rating since we don't have this field yet
+      specialty: primaryMassageType,
+      price: 75, // Default price - you can add this to the database later
+      distance: distance,
+      available: dbMasseur.is_available || false,
+      position: {
+        lat: dbMasseur.location_lat,
+        lng: dbMasseur.location_long
+      }
+    };
+  };
+
+  // Fetch approved masseurs from database
+  const fetchApprovedMasseurs = async () => {
+    setLoading(true);
+    try {
+      console.log('Fetching approved masseurs from database...');
+      
+      // Get approved masseurs (status = 'approved')
+      console.log('About to query masseuses table...');
+      const { data: masseurData, error: masseurError } = await supabase
+        .from('masseuses')
+        .select('masseuse_id, bio, location_lat, location_long, is_available, status, first_name, last_name')
+        .eq('status', 'approved');
+
+      console.log('Query result:', { data: masseurData, error: masseurError });
+
+      if (masseurError) {
+        console.error('Error fetching masseur data:', masseurError);
+        console.error('Error details:', JSON.stringify(masseurError, null, 2));
+        setMasseurs([]);
+        return;
+      }
+
+      if (!masseurData || masseurData.length === 0) {
+        console.log('No approved masseurs found');
+        setMasseurs([]);
+        return;
+      }
+
+      console.log(`Found ${masseurData.length} approved masseurs`);
+
+      // Filter for valid masseurs (with location data)
+      const validMasseurs = masseurData.filter(masseur => {
+        return masseur.location_lat && masseur.location_long && 
+                       masseur.first_name && masseur.last_name;
+      });
+
+      console.log(`${validMasseurs.length} masseurs have valid location data`);
+
+      // Get user's current location for distance calculation
+      let userLat: number | undefined;
+      let userLng: number | undefined;
+
+      if (navigator.geolocation) {
+        try {
+          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              timeout: 5000,
+              enableHighAccuracy: false
+            });
+          });
+          userLat = position.coords.latitude;
+          userLng = position.coords.longitude;
+          console.log('User location obtained:', { lat: userLat, lng: userLng });
+        } catch (error) {
+          console.log('Could not get user location for distance calculation:', error);
+        }
+      }
+
+      // Transform data for Map component
+      const transformedMasseurs = validMasseurs.map(masseur => {
+        const distance = userLat && userLng 
+          ? calculateDistance(userLat, userLng, masseur.location_lat, masseur.location_long)
+          : "N/A";
+
+        const primaryMassageType = "Aromatherapy"; // Default for now, can be made dynamic later
+
+        return {
+          id: masseur.masseuse_id,
+          name: `${masseur.first_name} ${masseur.last_name}`,
+          rating: "4.5",
+          specialty: primaryMassageType,
+          price: 75,
+          distance: distance,
+          available: masseur.is_available || false,
+          position: {
+            lat: masseur.location_lat,
+            lng: masseur.location_long
+          }
+        };
+      });
+
+      setMasseurs(transformedMasseurs);
+      console.log(`Successfully loaded ${transformedMasseurs.length} masseurs for map display`);
+      
+    } catch (error) {
+      console.error('Error fetching masseurs:', error);
+      setMasseurs([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch masseurs on component mount
+  useEffect(() => {
+    fetchApprovedMasseurs();
+    
+    // Set up periodic refresh every 30 seconds to catch new approvals
+    const intervalId = setInterval(() => {
+      console.log('Periodic refresh: Checking for new approved masseurs...');
+      fetchApprovedMasseurs();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  // Filter masseurs based on selected type
+  const filteredMasseurs = selectedMassageType === "all" 
+    ? masseurs
+    : masseurs.filter(
+        masseur => masseur.specialty.toLowerCase().includes(
+          massageTypes.find(type => type.id === selectedMassageType)?.name.toLowerCase() || ''
+        )
+      );
+
+  // Debug logging for masseurs data
+  useEffect(() => {
+    console.log('Masseurs data updated:', {
+      total: masseurs.length,
+      filtered: filteredMasseurs.length,
+      masseurs: masseurs.map(m => ({
+        name: m.name,
+        position: m.position,
+        available: m.available
+      }))
+    });
+  }, [masseurs, filteredMasseurs]);
 
   const scrollLeft = () => {
     if (typeScrollRef.current) {
@@ -239,20 +372,62 @@ const HomeScreen = () => {
     }
   };
 
-  // Filter masseurs based on selected type
-  const filteredMasseurs = selectedMassageType === "all" 
-    ? exampleMasseurs
-    : exampleMasseurs.filter(
-        masseur => masseur.specialty.toLowerCase() === 
-          massageTypes.find(type => type.id === selectedMassageType)?.name.toLowerCase()
-      );
-
   const handleMasseurSelect = (masseur: any) => {
     navigate('/booking', { state: { masseur } });
   };
 
   const toggleMenu = () => {
     setMenuOpen(!menuOpen);
+  };
+
+  // Check masseur status on component mount
+  useEffect(() => {
+    const checkMasseurStatus = async () => {
+      try {
+        const isApproved = await isMasseurRegistered();
+        setIsMasseurApproved(isApproved);
+      } catch (error) {
+        console.error('Error checking masseur status:', error);
+        setIsMasseurApproved(false);
+      } finally {
+        setCheckingMasseurStatus(false);
+      }
+    };
+
+    checkMasseurStatus();
+
+    // Also check when the page becomes visible again (in case status changed in another tab)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        checkMasseurStatus();
+        fetchApprovedMasseurs(); // Also refresh masseurs when page becomes visible
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Function to manually refresh masseur status (can be called from other parts of the app)
+  const refreshMasseurStatus = async () => {
+    setCheckingMasseurStatus(true);
+    try {
+      const isApproved = await isMasseurRegistered();
+      setIsMasseurApproved(isApproved);
+    } catch (error) {
+      console.error('Error checking masseur status:', error);
+      setIsMasseurApproved(false);
+    } finally {
+      setCheckingMasseurStatus(false);
+    }
+  };
+
+  // Function to refresh masseurs (can be called when needed)
+  const refreshMasseurs = () => {
+    fetchApprovedMasseurs();
   };
 
   return (
@@ -347,10 +522,14 @@ const HomeScreen = () => {
                 <ul className="space-y-1">
                   <li>
                     <button 
-                      onClick={() => {
-                        // Check if the user is already registered as a masseur
-                        if (isMasseurRegistered()) {
-                          // If already registered, redirect directly to the masseur dashboard
+                      onClick={async () => {
+                        // Check if the user is already an approved masseur
+                        if (checkingMasseurStatus) {
+                          return; // Don't do anything while checking
+                        }
+                        
+                        if (isMasseurApproved) {
+                          // If already approved, redirect directly to the masseur dashboard
                           navigate('/masseur-dashboard');
                         } else {
                           // Otherwise, start the registration process
@@ -359,10 +538,16 @@ const HomeScreen = () => {
                         setMenuOpen(false);
                       }}
                       className="w-full text-left py-2 px-3 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center"
+                      disabled={checkingMasseurStatus}
                     >
                       <Briefcase className="h-4 w-4 text-blue-600 mr-2" />
                       <span>
-                        {isMasseurRegistered() ? 'Masseur Dashboard' : 'Become a Masseur'}
+                        {checkingMasseurStatus 
+                          ? 'Checking status...' 
+                          : isMasseurApproved 
+                            ? 'Masseur Dashboard' 
+                            : 'Become a Masseur'
+                        }
                       </span>
                     </button>
                   </li>
@@ -392,7 +577,7 @@ const HomeScreen = () => {
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-md font-semibold text-gray-800">Types of Massage</h3>
           <div className="text-sm text-gray-500">
-            {filteredMasseurs.length} masseur{filteredMasseurs.length !== 1 ? 's' : ''} available
+            {loading ? 'Loading...' : `${filteredMasseurs.length} masseur${filteredMasseurs.length !== 1 ? 's' : ''} available`}
           </div>
         </div>
         
@@ -467,7 +652,7 @@ const HomeScreen = () => {
         </div>
       </div>
 
-      {/* Main Content */}
+            {/* Main Content */}
       {view === "map" ? (
         <>
           {/* Map View */}
@@ -479,29 +664,36 @@ const HomeScreen = () => {
               position: 'relative'
             }}
           >
-            {filteredMasseurs.length > 0 ? (
+            <div className="relative h-full w-full">
               <Map 
                 masseurs={filteredMasseurs} 
                 onMasseurSelect={handleMasseurSelect} 
               />
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center p-6 text-center bg-gray-50">
-                <div className="bg-gray-200 rounded-full p-4 mb-4">
-                  <MapPin size={32} className="text-gray-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">No masseurs available</h3>
-                <p className="text-gray-600">
-                  There are no masseurs offering {selectedMassageType !== "all" && massageTypes.find(t => t.id === selectedMassageType)?.name} 
-                  massage services in this area.
-                </p>
-                <button 
-                  onClick={() => setSelectedMassageType("all")}
-                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium"
+              {/* Floating refresh button for map */}
+              <button
+                onClick={refreshMasseurs}
+                className="absolute top-4 right-4 z-20 bg-white rounded-full shadow-lg p-3 hover:bg-gray-50 transition-colors"
+                title="Refresh masseurs"
+              >
+                <svg 
+                  width="20" 
+                  height="20" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                  className={loading ? "animate-spin" : ""}
                 >
-                  Show all masseurs
-                </button>
-              </div>
-            )}
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="m3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+              </button>
+              
+
+            </div>
           </div>
         </>
       ) : (
@@ -511,7 +703,7 @@ const HomeScreen = () => {
             <div className="grid grid-cols-1 gap-4">
               {filteredMasseurs.map((masseur, index) => (
                 <div
-                  key={index}
+                  key={`${masseur.name}-${index}`}
                   className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
                   onClick={() => handleMasseurSelect(masseur)}
                 >
@@ -551,14 +743,24 @@ const HomeScreen = () => {
               </div>
               <h3 className="text-lg font-semibold text-gray-800 mb-2">No masseurs available</h3>
               <p className="text-gray-600">
-                There are no masseurs offering {selectedMassageType !== "all" && massageTypes.find(t => t.id === selectedMassageType)?.name} 
-                massage services in this area.
+                {selectedMassageType !== "all" 
+                  ? `There are no masseurs offering ${massageTypes.find(t => t.id === selectedMassageType)?.name} massage services yet.`
+                  : "No approved masseurs are available yet. Check back later!"
+                }
               </p>
+              {selectedMassageType !== "all" && (
+                <button 
+                  onClick={() => setSelectedMassageType("all")}
+                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium"
+                >
+                  Show all masseurs
+                </button>
+              )}
               <button 
-                onClick={() => setSelectedMassageType("all")}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium"
+                onClick={refreshMasseurs}
+                className="mt-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-medium"
               >
-                Show all masseurs
+                Refresh
               </button>
             </div>
           )}

@@ -1,0 +1,192 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
+# Your rule content
+
+# Project Directory Structure
+
+```
+zgunteer-relaxgo/
+├── README.md
+├── capacitor.config.json
+├── components.json
+├── eslint.config.js
+├── index.html
+├── package.json
+├── postcss.config.js
+├── tailwind.config.ts
+├── tsconfig.app.json
+├── tsconfig.json
+├── tsconfig.node.json
+├── vite.config.ts
+├── android/
+│   ├── gradle.properties
+│   ├── gradlew
+│   ├── gradlew.bat
+│   ├── .gitignore
+│   ├── app/
+│   │   ├── capacitor.build.gradle.new
+│   │   ├── proguard-rules.pro
+│   │   ├── .gitignore
+│   │   └── src/
+│   │       ├── androidTest/
+│   │       │   └── java/
+│   │       │       └── com/
+│   │       │           └── getcapacitor/
+│   │       │               └── myapp/
+│   │       │                   └── ExampleInstrumentedTest.java
+│   │       ├── main/
+│   │       │   ├── AndroidManifest.xml
+│   │       │   ├── java/
+│   │       │   │   └── com/
+│   │       │   │       └── relaxgo/
+│   │       │   │           └── app/
+│   │       │   │               └── MainActivity.java
+│   │       │   └── res/
+│   │       │       ├── drawable/
+│   │       │       │   └── ic_launcher_background.xml
+│   │       │       ├── drawable-land-hdpi/
+│   │       │       ├── drawable-land-mdpi/
+│   │       │       ├── drawable-land-xhdpi/
+│   │       │       ├── drawable-land-xxhdpi/
+│   │       │       ├── drawable-land-xxxhdpi/
+│   │       │       ├── drawable-port-hdpi/
+│   │       │       ├── drawable-port-mdpi/
+│   │       │       ├── drawable-port-xhdpi/
+│   │       │       ├── drawable-port-xxhdpi/
+│   │       │       ├── drawable-port-xxxhdpi/
+│   │       │       ├── drawable-v24/
+│   │       │       │   └── ic_launcher_foreground.xml
+│   │       │       ├── layout/
+│   │       │       │   └── activity_main.xml
+│   │       │       ├── mipmap-anydpi-v26/
+│   │       │       │   ├── ic_launcher.xml
+│   │       │       │   └── ic_launcher_round.xml
+│   │       │       ├── mipmap-hdpi/
+│   │       │       ├── mipmap-mdpi/
+│   │       │       ├── mipmap-xhdpi/
+│   │       │       ├── mipmap-xxhdpi/
+│   │       │       ├── mipmap-xxxhdpi/
+│   │       │       ├── values/
+│   │       │       │   ├── ic_launcher_background.xml
+│   │       │       │   ├── strings.xml
+│   │       │       │   └── styles.xml
+│   │       │       └── xml/
+│   │       │           └── file_paths.xml
+│   │       └── test/
+│   │           └── java/
+│   │               └── com/
+│   │                   └── getcapacitor/
+│   │                       └── myapp/
+│   │                           └── ExampleUnitTest.java
+│   └── gradle/
+│       └── wrapper/
+│           └── gradle-wrapper.properties
+├── POZE/
+│   └── Masseur/
+├── public/
+│   └── images/
+└── src/
+    ├── App.css
+    ├── App.tsx
+    ├── index.css
+    ├── main.tsx
+    ├── vite-env.d.ts
+    ├── components/
+    │   ├── Map.tsx
+    │   ├── NavBar.tsx
+    │   ├── auth/
+    │   │   └── ProtectedRoute.tsx
+    │   └── ui/
+    │       ├── accordion.tsx
+    │       ├── alert-dialog.tsx
+    │       ├── alert.tsx
+    │       ├── aspect-ratio.tsx
+    │       ├── avatar.tsx
+    │       ├── badge.tsx
+    │       ├── breadcrumb.tsx
+    │       ├── button.tsx
+    │       ├── calendar.tsx
+    │       ├── card.tsx
+    │       ├── carousel.tsx
+    │       ├── chart.tsx
+    │       ├── checkbox.tsx
+    │       ├── collapsible.tsx
+    │       ├── command.tsx
+    │       ├── context-menu.tsx
+    │       ├── dialog.tsx
+    │       ├── drawer.tsx
+    │       ├── dropdown-menu.tsx
+    │       ├── form.tsx
+    │       ├── hover-card.tsx
+    │       ├── input-otp.tsx
+    │       ├── input.tsx
+    │       ├── label.tsx
+    │       ├── menubar.tsx
+    │       ├── navigation-menu.tsx
+    │       ├── pagination.tsx
+    │       ├── popover.tsx
+    │       ├── progress.tsx
+    │       ├── radio-group.tsx
+    │       ├── resizable.tsx
+    │       ├── scroll-area.tsx
+    │       ├── select.tsx
+    │       ├── separator.tsx
+    │       ├── sheet.tsx
+    │       ├── sidebar.tsx
+    │       ├── skeleton.tsx
+    │       ├── slider.tsx
+    │       ├── sonner.tsx
+    │       ├── switch.tsx
+    │       ├── table.tsx
+    │       ├── tabs.tsx
+    │       ├── textarea.tsx
+    │       ├── toast.tsx
+    │       ├── toaster.tsx
+    │       ├── toggle-group.tsx
+    │       ├── toggle.tsx
+    │       ├── tooltip.tsx
+    │       └── use-toast.ts
+    ├── context/
+    │   ├── AuthContext.tsx
+    │   └── UserContext.tsx
+    ├── hooks/
+    │   ├── use-mobile.tsx
+    │   └── use-toast.ts
+    ├── lib/
+    │   ├── supabaseClient.ts
+    │   └── utils.ts
+    ├── pages/
+    │   ├── AuthScreen.tsx
+    │   ├── BookingScreen.tsx
+    │   ├── BookingsScreen.tsx
+    │   ├── ForgotPasswordPage.tsx
+    │   ├── HomeScreen.tsx
+    │   ├── Index.tsx
+    │   ├── MasseurDashboardScreen.tsx
+    │   ├── MasseurDocumentsScreen.tsx
+    │   ├── MasseurSignupScreen.tsx
+    │   ├── MasseurStatusScreen.tsx
+    │   ├── NotFound.tsx
+    │   ├── OrderDetailsScreen.tsx
+    │   ├── PaymentMethodsScreen.tsx
+    │   ├── PaymentScreen.tsx
+    │   ├── PersonalInfoScreen.tsx
+    │   ├── ProfileScreen.tsx
+    │   ├── RatingScreen.tsx
+    │   ├── SplashScreen.tsx
+    │   ├── TrackingScreen.tsx
+    │   ├── UnauthorizedScreen.tsx
+    │   └── UpdatePasswordPage.tsx
+    └── services/
+        ├── AppStateService.ts
+        ├── AuthService.ts
+        └── MasseurService.ts
+```

@@ -4,9 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Clock, Calendar, MapPin, Star, ChevronRight, 
-  Clock as ClockIcon, Calendar as CalendarIcon
+  Clock as ClockIcon, Calendar as CalendarIcon, Loader2
 } from 'lucide-react';
 import NavBar from '@/components/NavBar';
+import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
+import { format } from 'date-fns';
 
 const BookingCard = ({ 
   masseurName, 
@@ -53,11 +56,11 @@ const BookingCard = ({
         <div className="mt-3 flex items-center justify-between">
           <span className="text-sm font-medium text-gray-900">${price}</span>
           <span className={`text-sm px-2 py-1 rounded-full ${
-            status === 'upcoming' 
+            status === 'upcoming' || status === 'confirmed' || status === 'pending'
               ? 'bg-emerald-100 text-emerald-700' 
               : 'bg-gray-100 text-gray-700'
           }`}>
-            {status === 'upcoming' ? 'Upcoming' : 'Completed'}
+            {status === 'upcoming' || status === 'confirmed' ? 'Upcoming' : status === 'pending' ? 'Pending' : 'Completed'}
           </span>
         </div>
       </div>
@@ -70,9 +73,12 @@ const BookingCard = ({
 const BookingsScreen = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { authUser } = useAuth();
   const [activeTab, setActiveTab] = useState('upcoming');
+  const [upcomingBookings, setUpcomingBookings] = useState([]);
+  const [pastBookings, setPastBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
   
-  // Check if we should display the past tab
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const view = searchParams.get('view');
@@ -81,58 +87,116 @@ const BookingsScreen = () => {
     }
   }, [location]);
   
-  const upcomingBookings = [
-    {
-      masseurName: "Costin M.",
-      date: "Today",
-      time: "2:30 PM",
-      location: "Strada Victoriei 123",
-      status: "upcoming",
-      rating: "4.9",
-      specialty: "Deep Tissue",
-      price: 95
-    },
-    {
-      masseurName: "Elena B.",
-      date: "Tomorrow",
-      time: "11:00 AM",
-      location: "Bulevardul Unirii 45",
-      status: "upcoming",
-      rating: "4.7",
-      specialty: "Masaj Thai",
-      price: 85
+  useEffect(() => {
+    if (authUser) {
+      fetchBookings();
     }
-  ];
+  }, [authUser]);
+
+  const fetchBookings = async () => {
+    setLoading(true);
+    try {
+      const now = new Date().toISOString();
+
+      // 1. Fetch upcoming bookings: confirmed or pending, and in the future
+      const { data: upcomingData, error: upcomingError } = await supabase
+        .from('bookings')
+        .select(`
+          id, scheduled_time, status,
+          masseuse:masseuse_id (first_name, last_name),
+          massage_type:massage_type_id (name, base_price),
+          reviews (rating)
+        `)
+        .eq('customer_id', authUser.id)
+        .in('status', ['confirmed', 'pending'])
+        .gte('scheduled_time', now)
+        .order('scheduled_time', { ascending: true });
+
+      if (upcomingError) throw upcomingError;
+
+      // 2. Fetch all other bookings for the user to determine the "past" list
+      const { data: allBookingsData, error: allBookingsError } = await supabase
+        .from('bookings')
+        .select(`
+          id, scheduled_time, status,
+          masseuse:masseuse_id (first_name, last_name),
+          massage_type:massage_type_id (name, base_price),
+          reviews (rating)
+        `)
+        .eq('customer_id', authUser.id)
+        .order('scheduled_time', { ascending: false });
+
+      if (allBookingsError) throw allBookingsError;
   
-  const pastBookings = [
-    {
-      masseurName: "Mihai B.",
-      date: "March 15, 2024",
-      time: "3:00 PM",
-      location: "Strada Lipscani 78",
-      status: "completed",
-      rating: "4.8",
-      specialty: "Relaxare",
-      price: 80
-    },
-    {
-      masseurName: "Teodora P.",
-      date: "March 10, 2024",
-      time: "1:30 PM",
-      location: "Calea Victoriei 234",
-      status: "completed",
-      rating: "4.6",
-      specialty: "Recuperare Sportivă",
-      price: 90
+      const transformBooking = (booking) => ({
+        id: booking.id,
+        masseurName: `${booking.masseuse.first_name || ''} ${booking.masseuse.last_name || ''}`.trim(),
+        date: format(new Date(booking.scheduled_time), 'MMMM d, yyyy'),
+        time: format(new Date(booking.scheduled_time), 'p'),
+        location: 'Client Address', // Placeholder, needs address in bookings table
+        status: booking.status,
+        rating: (booking.reviews && booking.reviews.length > 0) ? booking.reviews[0].rating.toString() : null,
+        specialty: booking.massage_type.name,
+        price: booking.massage_type.base_price,
+      });
+
+      const upcomingTransformed = upcomingData.map(transformBooking);
+      const upcomingIds = new Set(upcomingTransformed.map(b => b.id));
+
+      // A booking is "past" if it's not in the upcoming list
+      const pastTransformed = allBookingsData
+        .filter(booking => !upcomingIds.has(booking.id))
+        .map(transformBooking);
+      
+      setUpcomingBookings(upcomingTransformed);
+      setPastBookings(pastTransformed);
+
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
   
   const handleBookingClick = (booking) => {
-    if (booking.status === 'upcoming') {
-      navigate('/tracking');
+    if (booking.status === 'confirmed') {
+      navigate('/tracking', { state: { bookingId: booking.id } });
+    } else if (booking.status === 'completed' || booking.status === 'cancelled') {
+      navigate(`/rating/${booking.id}`);
     } else {
-      navigate('/rating');
+      // For pending bookings, maybe navigate to order details
+      // Or just don't do anything
     }
+  };
+
+  const renderContent = (bookings) => {
+    if (loading) {
+      return (
+        <div className="flex justify-center items-center p-10">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+        </div>
+      );
+    }
+
+    if (bookings.length === 0) {
+      return (
+        <div className="text-center p-10 bg-gray-100 rounded-lg">
+          <p className="text-gray-500">No bookings here.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        {bookings.map((booking) => (
+          <BookingCard
+            key={booking.id}
+            {...booking}
+            onClick={() => handleBookingClick(booking)}
+          />
+        ))}
+      </div>
+    );
   };
   
   return (
@@ -155,27 +219,11 @@ const BookingsScreen = () => {
           </TabsList>
           
           <TabsContent value="upcoming" className="mt-0">
-            <div className="space-y-3">
-              {upcomingBookings.map((booking, index) => (
-                <BookingCard 
-                  key={index} 
-                  {...booking} 
-                  onClick={() => handleBookingClick(booking)}
-                />
-              ))}
-            </div>
+            {renderContent(upcomingBookings)}
           </TabsContent>
           
           <TabsContent value="past" className="mt-0">
-            <div className="space-y-3">
-              {pastBookings.map((booking, index) => (
-                <BookingCard 
-                  key={index} 
-                  {...booking} 
-                  onClick={() => handleBookingClick(booking)}
-                />
-              ))}
-            </div>
+            {renderContent(pastBookings)}
           </TabsContent>
         </Tabs>
       </div>

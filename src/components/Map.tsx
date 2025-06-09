@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
+import { useMap } from '../context/MapContext'; // Import the useMap hook
 
 interface Masseur {
   name: string;
@@ -35,158 +36,23 @@ const Map: React.FC<MapProps> = ({
   const activeInfoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const locationMarkerRef = useRef<google.maps.Marker | null>(null);
 
-  // Initialize map once
+  // Get map functions from context
+  const { initializeMap, getMapInstance } = useMap();
+
+  // Initialize or reuse map instance
   useEffect(() => {
-    if (mapRef.current && !mapInstanceRef.current) {
-      console.log('Initializing map with container:', mapRef.current);
+    if (mapRef.current) {
+      console.log('Setting up map in container');
       
-      // Modern map style inspired by standard Google Maps (colorful)
-      const mapStyles = [
-        {
-          "featureType": "poi",
-          "elementType": "labels",
-          "stylers": [
-            { "visibility": "off" }
-          ]
-        },
-        {
-          "featureType": "poi",
-          "stylers": [
-            { "clickable": false }
-          ]
-        },
-        {
-          "featureType": "transit",
-          "stylers": [
-            { "clickable": false }
-          ]
-        },
-        {
-          "featureType": "road",
-          "stylers": [
-            { "clickable": false }
-          ]
-        },
-        {
-          "featureType": "landscape",
-          "stylers": [
-            { "clickable": false }
-          ]
-        },
-        {
-          "featureType": "administrative",
-          "stylers": [
-            { "clickable": false }
-          ]
-        },
-        {
-          "featureType": "administrative.locality",
-          "elementType": "labels.text.fill",
-          "stylers": [
-            { "color": "#4a4a4a" }
-          ]
-        },
-        {
-          "featureType": "landscape.natural",
-          "elementType": "geometry.fill",
-          "stylers": [
-            { "visibility": "on" },
-            { "color": "#e0efef" }
-          ]
-        },
-        {
-          "featureType": "water",
-          "elementType": "geometry.fill",
-          "stylers": [
-            { "visibility": "on" },
-            { "color": "#a4ddf5" }
-          ]
-        },
-        {
-          "featureType": "road",
-          "elementType": "geometry.fill",
-          "stylers": [
-            { "color": "#ffffff" }
-          ]
-        },
-        {
-          "featureType": "road",
-          "elementType": "geometry.stroke",
-          "stylers": [
-            { "color": "#d7d7d7" }
-          ]
-        },
-        {
-          "featureType": "road.highway",
-          "elementType": "geometry.fill",
-          "stylers": [
-            { "color": "#ffcc99" }
-          ]
-        },
-        {
-          "featureType": "road.highway",
-          "elementType": "geometry.stroke",
-          "stylers": [
-            { "color": "#ff9966" }
-          ]
-        },
-        {
-          "featureType": "transit.line",
-          "elementType": "geometry",
-          "stylers": [
-            { "visibility": "on" },
-            { "color": "#449999" }
-          ]
-        },
-        {
-          "featureType": "transit.station",
-          "elementType": "labels.icon",
-          "stylers": [
-            { "visibility": "on" }
-          ]
-        },
-        {
-          "featureType": "poi.park",
-          "elementType": "geometry.fill",
-          "stylers": [
-            { "color": "#c6e7c6" },
-            { "visibility": "on" }
-          ]
-        }
-      ];
-
       try {
-        // Use currentLocation if provided, otherwise default to Bucharest
-        const center = currentLocation || { lat: 44.4268, lng: 26.1025 };
-
-        const map = new google.maps.Map(mapRef.current, {
-          center: center,
-          zoom: 15, // Zoom in closer when showing current location
-          fullscreenControl: false,   // Remove fullscreen control
-          mapTypeControl: false,      // Remove map type control (satellite/terrain)
-          streetViewControl: false,   // Remove street view (little person)
-          zoomControl: true,         
-          zoomControlOptions: {
-            position: controlsPosition === 'bottom' 
-              ? google.maps.ControlPosition.RIGHT_BOTTOM 
-              : google.maps.ControlPosition.TOP_RIGHT,
-          },
-          styles: mapStyles,
-          // Modern UI options
-          gestureHandling: 'greedy', // Make it easier to handle on mobile
-          disableDefaultUI: true,     // Remove all controls
-          scaleControl: false,        // Remove scale control
-          rotateControl: false,       // Remove rotate control
-          clickableIcons: false,      // Disable clickability of default Google POIs
-        });
-
+        // Get existing map instance or create new one
+        const map = initializeMap(mapRef.current, controlsPosition);
         mapInstanceRef.current = map;
-        console.log('Map created successfully');
       } catch (error) {
-        console.error('Error initializing Google Maps:', error);
+        console.error('Error setting up Google Maps:', error);
       }
     }
-  }, [currentLocation, controlsPosition]);
+  }, [initializeMap, controlsPosition]);
 
   // Update current location marker when it changes
   useEffect(() => {
@@ -229,6 +95,8 @@ const Map: React.FC<MapProps> = ({
     const map = mapInstanceRef.current;
     if (!map || onlyShowMap) return; // Don't show masseur markers in onlyShowMap mode
 
+    console.log('Map: Updating markers for', masseurs.length, 'masseurs');
+
     // Close any open info windows
     if (activeInfoWindowRef.current) {
       activeInfoWindowRef.current.close();
@@ -248,8 +116,32 @@ const Map: React.FC<MapProps> = ({
       }
     });
 
+    // If no masseurs, center on Bucharest
+    if (masseurs.length === 0) {
+      map.setCenter({ lat: 44.439663, lng: 26.096306 });
+      map.setZoom(12);
+      console.log('Map: No masseurs, centered on Bucharest');
+      return;
+    }
+
+    // Calculate bounds to fit all masseurs
+    const bounds = new google.maps.LatLngBounds();
+    let validMarkers = 0;
+
     // Add new markers for each masseur
     masseurs.forEach((masseur, index) => {
+      console.log(`Map: Creating marker ${index + 1} for ${masseur.name} at`, masseur.position);
+
+      // Validate position
+      if (!masseur.position || !masseur.position.lat || !masseur.position.lng) {
+        console.warn('Map: Invalid position for masseur:', masseur.name, masseur.position);
+        return;
+      }
+
+      // Extend bounds
+      bounds.extend(masseur.position);
+      validMarkers++;
+
       // Create a custom marker element
       const markerColor = masseur.available ? '#FF385C' : '#9CA3AF'; // Airbnb red or gray
       
@@ -258,16 +150,18 @@ const Map: React.FC<MapProps> = ({
         position: masseur.position,
         map: map,
         title: masseur.name,
-        animation: google.maps.Animation.DROP,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           fillColor: markerColor,
           fillOpacity: 1,
           strokeColor: '#FFFFFF',
           strokeWeight: 2,
-          scale: 10, // Slightly larger for better visibility
-        }
+          scale: 12, // Larger for better visibility
+        },
+        zIndex: masseur.available ? 10 : 5, // Available masseurs on top
       });
+
+      console.log(`Map: Created marker for ${masseur.name} at position`, masseur.position, 'color:', markerColor);
 
       // Only add info windows if onMasseurSelect handler is provided
       if (onMasseurSelect) {
@@ -334,6 +228,7 @@ const Map: React.FC<MapProps> = ({
 
         // Add click listener for marker
         marker.addListener('click', (e) => {
+          console.log('Map: Marker clicked for', masseur.name);
           // Stop event propagation to prevent the map click from immediately closing the window
           e.stop();
           
@@ -341,6 +236,11 @@ const Map: React.FC<MapProps> = ({
           if (activeInfoWindowRef.current) {
             activeInfoWindowRef.current.close();
           }
+          
+          // Zoom in to the selected masseur
+          map.setCenter(masseur.position);
+          map.setZoom(15);
+          console.log('Map: Zoomed in to selected masseur:', masseur.name);
           
           // Open this info window
           infoWindow.open(map, marker);
@@ -352,6 +252,7 @@ const Map: React.FC<MapProps> = ({
             if (bookButton) {
               bookButton.addEventListener('click', (e) => {
                 e.preventDefault();
+                console.log('Map: Book button clicked for', masseur.name);
                 onMasseurSelect(masseur);
                 if (activeInfoWindowRef.current) {
                   activeInfoWindowRef.current.close();
@@ -362,6 +263,7 @@ const Map: React.FC<MapProps> = ({
             const closeButton = document.getElementById(`close-button-${index}`);
             if (closeButton) {
               closeButton.addEventListener('click', () => {
+                console.log('Map: Close button clicked for', masseur.name);
                 infoWindow.close();
                 activeInfoWindowRef.current = null;
               });
@@ -372,6 +274,11 @@ const Map: React.FC<MapProps> = ({
 
       markersRef.current.push(marker);
     });
+
+    // Don't auto-zoom to masseurs - let user manually select pins to zoom in
+    console.log(`Map: Created ${validMarkers} markers without auto-zoom`);
+
+    console.log(`Map: Successfully created ${validMarkers} markers out of ${masseurs.length} masseurs`);
   }, [masseurs, onMasseurSelect, onlyShowMap]);
 
   return (

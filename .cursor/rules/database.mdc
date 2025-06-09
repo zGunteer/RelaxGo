@@ -1,0 +1,73 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
+# Project Database Schema (Supabase)
+
+This document outlines the structure of the Supabase database tables used in this project, based on the provided schema diagram.
+
+## Tables
+
+### `users`
+*   Primary Key: `id` (uuid) - Linked to `auth.users.id`.
+*   Columns:
+    *   `phone` (text)
+    *   `role` (text) - e.g., 'client', 'masseuse', 'admin'
+    *   `created_at` (timestamp)
+    *   `first_name` (text)
+    *   `last_name` (text)
+*   *Note:* An `is_active` (boolean) column needs to be added for admin suspend/reactivate functionality.
+
+### `masseuses`
+*   Primary Key: `masseuse_id` (uuid) - This is also the Foreign Key referencing `users.id`.
+*   Columns:
+    *   `bio` (text)
+    *   `rating` (numeric)
+    *   `location_lat` (float8)
+    *   `location_long` (float8)
+    *   `is_available` (bool)
+
+### `massage_types`
+*   Primary Key: `id` (int4)
+*   Columns:
+    *   `name` (text)
+    *   `description` (text)
+    *   `base_price` (numeric)
+
+### `masseuse_massage_types` (Join Table)
+*   Composite Primary Key: (`masseuse_id`, `massage_type_id`)
+*   Foreign Keys:
+    *   `masseuse_id` (uuid) -> `masseuses.masseuse_id`
+    *   `massage_type_id` (int4) -> `massage_types.id`
+*   Columns:
+    *   `custom_price` (numeric) - Overrides `massage_types.base_price` if set.
+
+### `bookings`
+*   Primary Key: `id` (int4)
+*   Foreign Keys:
+    *   `customer_id` (uuid) -> `users.id`
+    *   `masseuse_id` (uuid) -> `masseuses.masseuse_id`
+    *   `massage_type_id` (int4) -> `massage_types.id`
+*   Columns:
+    *   `scheduled_time` (timestamp)
+    *   `duration_minutes` (int4)
+    *   `status` (text) - e.g., 'pending', 'confirmed', 'completed', 'cancelled'
+    *   `created_at` (timestamp)
+
+### `reviews`
+*   Primary Key: `id` (int4)
+*   Foreign Keys:
+    *   `booking_id` (int4) -> `bookings.id`
+*   Columns:
+    *   `rating` (int4) - Should ideally have a CHECK constraint (1-5).
+    *   `comment` (text)
+    *   `created_at` (timestamp)
+
+---
+*This schema information should be used as the reference when interacting with the database.* 

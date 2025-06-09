@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext'; // Adjust path if needed
 
 const Index: React.FC = () => {
-  const { isAuthenticated, loading: authLoading, user } = useAuth();
+  const { isAuthenticated, loading: authLoading, authUser } = useAuth();
   const navigate = useNavigate();
 
-  console.log('Index rendering - Auth state:', { isAuthenticated, authLoading, user });
+  console.log('Index rendering - Auth state:', { isAuthenticated, authLoading, authUser });
 
   useEffect(() => {
-    console.log('Index useEffect - Auth state changed:', { isAuthenticated, authLoading, user });
+    console.log('Index useEffect - Auth state changed:', { isAuthenticated, authLoading, authUser });
     
     // Wait until the authentication status is determined
     if (!authLoading) {
@@ -25,7 +25,7 @@ const Index: React.FC = () => {
     } else {
       console.log('Index: Still loading authentication state...');
     }
-  }, [isAuthenticated, authLoading, navigate, user]);
+  }, [isAuthenticated, authLoading, navigate, authUser]);
 
   // If still initializing after 5 seconds, force navigate to auth
   useEffect(() => {

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, CreditCard, Check, Loader2 } from 'lucide-react';
 import NavBar from '@/components/NavBar';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
+import { useUser } from '@/context/UserContext';
 
 const PaymentProcessStep = ({ title, description, icon: Icon, status }) => (
   <div className="flex items-start">
@@ -38,16 +40,80 @@ const PaymentProcessStep = ({ title, description, icon: Icon, status }) => (
 
 const PaymentScreen = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { userInfo } = useUser();
   const [currentStep, setCurrentStep] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
+  const [bookingData, setBookingData] = useState(null);
   
+  // Create booking in database
+  const createBooking = async (orderData) => {
+    try {
+      console.log('Creating booking with data:', orderData);
+      
+      // Extract masseur ID from the masseur string or state
+      let masseurId = null;
+      if (orderData.masseur && typeof orderData.masseur === 'object') {
+        masseurId = orderData.masseur.id;
+      } else {
+        // Try to get from location state if masseur data was passed
+        const state = location.state;
+        if (state?.masseur?.id) {
+          masseurId = state.masseur.id;
+        }
+      }
+      
+      if (!masseurId) {
+        console.error('No masseur ID found for booking');
+        return null;
+      }
+      
+      // Create booking record
+      const { data: booking, error } = await supabase
+        .from('bookings')
+        .insert({
+          customer_id: userInfo.id,
+          masseuse_id: masseurId,
+          massage_type_id: orderData.massageType?.id || 1, // Default to 1 if not found
+          scheduled_time: new Date(`${orderData.date.toDateString()} ${orderData.time}`).toISOString(),
+          duration_minutes: 60, // Default duration
+          status: 'pending', // Masseur needs to confirm
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+        
+      if (error) {
+        console.error('Error creating booking:', error);
+        return null;
+      }
+      
+      console.log('Booking created successfully:', booking);
+      return booking;
+    } catch (error) {
+      console.error('Error in createBooking:', error);
+      return null;
+    }
+  };
+
+  // Get booking data from navigation state
+  useEffect(() => {
+    const state = location.state;
+    if (state) {
+      setBookingData(state);
+      console.log('Received booking data:', state);
+    }
+  }, [location]);
+
   // Simulate payment processing
   useEffect(() => {
+    if (!bookingData) return;
+    
     const steps = [
       { delay: 1000, message: 'Validating payment information...' },
       { delay: 2000, message: 'Authorizing payment...' },
       { delay: 1500, message: 'Processing payment...' },
-      { delay: 1000, message: 'Payment successful! Redirecting...' }
+      { delay: 1000, message: 'Payment successful! Creating booking...' }
     ];
 
     let timer = null;
@@ -66,6 +132,15 @@ const PaymentScreen = () => {
         });
       }
       
+      // Create the booking after payment processing
+      const booking = await createBooking(bookingData);
+      
+      if (booking) {
+        toast.success('Booking created successfully!');
+      } else {
+        toast.error('Failed to create booking. Please contact support.');
+      }
+      
       // After all steps are complete
       setIsComplete(true);
       
@@ -81,7 +156,7 @@ const PaymentScreen = () => {
     return () => {
       clearTimeout(timer);
     };
-  }, [navigate]);
+  }, [navigate, bookingData]);
   
   const paymentSteps = [
     {

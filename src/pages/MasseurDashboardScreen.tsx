@@ -1,11 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, X, ArrowRight, BarChart3, Calendar, Settings, Users, LogOut, Clock } from 'lucide-react';
+import { Menu, X, ArrowRight, BarChart3, Calendar, Settings, Users, LogOut, Clock, Check, X as XIcon } from 'lucide-react';
 import Map from '../components/Map';
 import * as MasseurService from '../services/MasseurService';
+import { supabase } from '../lib/supabaseClient';
+import { useUser } from '../context/UserContext';
+import { useAuth } from '../context/AuthContext';
+import { toast } from 'sonner';
 
 const MasseurDashboardScreen: React.FC = () => {
   const navigate = useNavigate();
+  const { userInfo } = useUser();
+  const { authUser } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -13,6 +19,10 @@ const MasseurDashboardScreen: React.FC = () => {
   const sliderRef = useRef<HTMLDivElement>(null);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  
+  // Bookings state
+  const [upcomingBookings, setUpcomingBookings] = useState([]);
+  const [loading, setLoading] = useState(false);
   
   // Panel state with only two positions
   const [isPanelExpanded, setIsPanelExpanded] = useState(false);
@@ -42,30 +52,146 @@ const MasseurDashboardScreen: React.FC = () => {
     }
   }, []);
   
-  // Mock data for earnings
+  // Fetch bookings when component mounts and when authUser changes
+  useEffect(() => {
+    if (authUser?.id) {
+      fetchBookings();
+    }
+  }, [authUser?.id]);
+  
+  // Auto-refresh bookings every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (authUser?.id) {
+        fetchBookings();
+      }
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [authUser?.id]);
+
+  // Real-time subscription for new bookings
+  useEffect(() => {
+    if (!authUser?.id) return;
+
+    const channel = supabase
+      .channel(`masseur-bookings-${authUser.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bookings',
+          filter: `masseuse_id=eq.${authUser.id}`,
+        },
+        (payload) => {
+          console.log('Booking update received:', payload);
+          // Refresh bookings when any booking changes
+          fetchBookings();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authUser?.id]);
+  
+  // Mock data for earnings (will be calculated from bookings later)
   const earnings = {
-    today: 85,
-    week: 430,
-    month: 1650,
+    today: 0,
+    week: 0,
+    month: 0,
   };
 
-  // Mock data for upcoming appointments
-  const upcomingAppointments = [
-    {
-      id: 1,
-      clientName: 'Alex Johnson',
-      time: '14:30',
-      address: '1234 Main St, Bucharest',
-      price: 65,
-    },
-    {
-      id: 2,
-      clientName: 'Maria Garcia',
-      time: '16:45',
-      address: '567 Park Ave, Bucharest',
-      price: 80,
+  // Fetch bookings for the current masseur
+  const fetchBookings = async () => {
+    if (!authUser?.id) return;
+    
+    setLoading(true);
+    try {
+      const { data: bookings, error } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          scheduled_time,
+          duration_minutes,
+          status,
+          massage_type_id,
+          users:customer_id (
+            first_name,
+            last_name
+          ),
+          massage_types (
+            name
+          )
+        `)
+        .eq('masseuse_id', authUser.id)
+        .in('status', ['pending', 'confirmed'])
+        .gte('scheduled_time', new Date().toISOString())
+        .order('scheduled_time', { ascending: true });
+        
+      if (error) {
+        console.error('Error fetching bookings:', error);
+        return;
+      }
+      
+      console.log('Fetched bookings:', bookings);
+      
+      // Transform bookings for display
+      const transformedBookings = (bookings || []).map(booking => ({
+        id: booking.id,
+        clientName: booking.users ? `${booking.users.first_name} ${booking.users.last_name}` : 'Unknown Client',
+        time: new Date(booking.scheduled_time).toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        }),
+        date: new Date(booking.scheduled_time).toLocaleDateString(),
+        address: 'Client Address', // Default since we don't have booking_address
+        price: 95, // Default price since we don't have total_amount
+        status: booking.status,
+        massageType: booking.massage_types?.name || 'Massage',
+        locationType: 'user' // Default to user location
+      }));
+      
+      setUpcomingBookings(transformedBookings);
+      
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
+  
+  // Confirm or reject a booking
+  const updateBookingStatus = async (bookingId, newStatus) => {
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: newStatus })
+        .eq('id', bookingId);
+        
+      if (error) {
+        console.error('Error updating booking status:', error);
+        toast.error('Failed to update booking');
+        return;
+      }
+      
+      // Refresh bookings
+      fetchBookings();
+      
+      if (newStatus === 'confirmed') {
+        toast.success('Booking confirmed!');
+      } else if (newStatus === 'declined') {
+        toast.success('Booking declined');
+      }
+      
+    } catch (error) {
+      console.error('Error updating booking status:', error);
+      toast.error('Failed to update booking');
+    }
+  };
 
   // Modify the handlePanelDrag function to ensure it only activates on the handle itself
   const handlePanelDrag = (e: React.TouchEvent | React.MouseEvent) => {
@@ -271,14 +397,16 @@ const MasseurDashboardScreen: React.FC = () => {
     navigate('/home');
   };
 
-  // Handle clicking on an appointment
-  const handleAppointmentClick = (appointmentId: number, e: React.MouseEvent) => {
-    // Stop event from bubbling up to the panel or slider
+  // Handle clicking on an appointment action
+  const handleAppointmentAction = (bookingId: number, action: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Navigate to appointment details (example)
-    console.log(`Navigating to appointment ${appointmentId}`);
-    // You could navigate to the appointment detail page here:
-    // navigate(`/appointments/${appointmentId}`);
+    console.log('Booking action:', action, 'for booking:', bookingId);
+    
+    if (action === 'confirm') {
+      updateBookingStatus(bookingId, 'confirmed');
+    } else if (action === 'cancel') {
+      updateBookingStatus(bookingId, 'declined');
+    }
   };
 
   return (
@@ -454,38 +582,75 @@ const MasseurDashboardScreen: React.FC = () => {
             </div>
           </div>
 
-          {/* Upcoming Appointments */}
+          {/* Upcoming Bookings */}
           <div className="px-5 py-2 pb-20" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Upcoming Appointments</h3>
-            {upcomingAppointments.length > 0 ? (
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">Upcoming Bookings</h3>
+            {loading ? (
+              <div className="bg-gray-50 rounded-xl p-6 text-center">
+                <p className="text-gray-500">Loading bookings...</p>
+              </div>
+            ) : upcomingBookings.length > 0 ? (
               <div className="space-y-3">
-                {upcomingAppointments.map(appointment => (
+                {upcomingBookings.map(booking => (
                   <div 
-                    key={appointment.id} 
-                    className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
-                    onClick={(e) => handleAppointmentClick(appointment.id, e)}
+                    key={booking.id} 
+                    className="bg-white rounded-xl p-4 shadow-sm border border-gray-100"
                   >
-                    <div className="flex justify-between">
-                      <div>
-                        <p className="font-semibold">{appointment.clientName}</p>
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <p className="font-semibold">{booking.clientName}</p>
+                        <p className="text-sm text-gray-600 mt-1">{booking.massageType}</p>
                         <div className="flex items-center text-gray-500 text-sm mt-1">
                           <Clock className="w-4 h-4 mr-1" />
-                          <span>{appointment.time}</span>
+                          <span>{booking.date} • {booking.time}</span>
                         </div>
-                        <p className="text-gray-500 text-sm mt-1 truncate max-w-[200px]">{appointment.address}</p>
+                        <p className="text-gray-500 text-sm mt-1 truncate max-w-[200px]">
+                          📍 {booking.address}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {booking.locationType === 'user' ? 'At client location' : 'At your location'}
+                        </p>
                       </div>
                       <div className="flex flex-col items-end">
-                        <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded-md text-sm font-medium">
-                          ${appointment.price}
+                        <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded-md text-sm font-medium mb-2">
+                          ${booking.price}
+                        </div>
+                        <div className={`px-2 py-1 rounded-md text-xs font-medium ${
+                          booking.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                          booking.status === 'confirmed' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {booking.status.toUpperCase()}
                         </div>
                       </div>
                     </div>
+                    
+                    {/* Always show buttons for debugging */}
+                      <div className="flex space-x-2 mt-3 pt-3 border-t border-gray-100">
+                        <button
+                          onClick={(e) => handleAppointmentAction(booking.id, 'confirm', e)}
+                          className="flex-1 bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center justify-center"
+                        disabled={booking.status !== 'pending'}
+                        >
+                          <Check className="w-4 h-4 mr-1" />
+                          Confirm
+                        </button>
+                        <button
+                          onClick={(e) => handleAppointmentAction(booking.id, 'cancel', e)}
+                          className="flex-1 bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors flex items-center justify-center"
+                        disabled={booking.status !== 'pending'}
+                        >
+                          <XIcon className="w-4 h-4 mr-1" />
+                        Decline
+                        </button>
+                      </div>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="bg-gray-50 rounded-xl p-6 text-center">
-                <p className="text-gray-500">No upcoming appointments</p>
+                <p className="text-gray-500">No upcoming bookings</p>
+                <p className="text-xs text-gray-400 mt-1">New bookings will appear here</p>
               </div>
             )}
           </div>

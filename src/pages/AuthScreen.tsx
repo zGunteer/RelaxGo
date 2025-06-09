@@ -6,17 +6,18 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { motion } from 'framer-motion';
-import { Facebook, Mail, Lock, User, Phone } from 'lucide-react';
+import { Mail, Lock, User, Phone } from 'lucide-react';
 import { FcGoogle } from "react-icons/fc";
 import { useAuth } from '@/context/AuthContext';
 import { LoginInput, RegisterInput, SocialProvider, UserRole } from '@/services/AuthService';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
+import { Provider } from '@supabase/supabase-js';
 
 const AuthScreen = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { login, register, socialLogin, loading: authLoading, isAuthenticated, user } = useAuth();
+  const { loading: authLoading, session, authUser, isAdmin, userProfile } = useAuth();
   
   // Local loading states for buttons
   const [loginButtonLoading, setLoginButtonLoading] = useState(false);
@@ -26,49 +27,31 @@ const AuthScreen = () => {
   // Get the return URL from location state or default to home
   const from = (location.state as any)?.from || '/home';
   
-  // Handle redirect after social login - with direct Supabase session check
+  // Handle redirect after login/auth state change
   useEffect(() => {
-    console.log('Auth state check:', { isAuthenticated, user, authLoading });
+    console.log('[AuthScreen useEffect] Running. Deps:', { authLoading, isAdmin, session });
     
-    // First check - Use the context state if available
-    if (isAuthenticated && user) {
-      console.log('User authenticated via context state, redirecting to home');
-      navigate('/home', { replace: true });
-      return;
+    if (!authLoading && session) {
+      if (isAdmin) {
+        console.log('[AuthScreen useEffect] Admin detected! Navigating to /admin');
+        navigate('/admin', { replace: true });
+      } else {
+        const destination = from === '/auth' ? '/home' : from;
+        console.log(`[AuthScreen useEffect] Non-admin user detected. Navigating to: ${destination}`);
+        navigate(destination, { replace: true });
+      }
+    } else {
+      console.log('[AuthScreen useEffect] Conditions NOT met (loading or no session).');
     }
-    
-    // Second check - Check if there's a Google OAuth redirect happening
-    const isOAuthRedirect = window.location.hash.includes('access_token') || 
-                          new URLSearchParams(window.location.search).has('access_token') ||
-                          localStorage.getItem('attemptingSocialLogin') === 'true';
-    
-    if (isOAuthRedirect || localStorage.getItem('attemptingSocialLogin')) {
-      console.log('Detected OAuth redirect or social login attempt');
-      
-      // Directly check Supabase session - don't rely only on the context
-      supabase.auth.getSession().then(({ data }) => {
-        if (data.session) {
-          console.log('Found active session on OAuth redirect, redirecting to home');
-          localStorage.removeItem('attemptingSocialLogin');
-          navigate('/home', { replace: true });
-        } else {
-          console.log('No session found on OAuth redirect');
-          localStorage.removeItem('attemptingSocialLogin');
-        }
-      }).catch(error => {
-        console.error('Error checking session:', error);
-        localStorage.removeItem('attemptingSocialLogin');
-      });
-    }
-  }, [isAuthenticated, user, navigate, authLoading]);
+  }, [session, navigate, authLoading, isAdmin, from]);
   
-  // Login form state - simplified
+  // Login form state
   const [loginData, setLoginData] = useState<LoginInput>({
     email: '',
     password: ''
   });
   
-  // Register form state - simplified
+  // Register form state
   const [registerData, setRegisterData] = useState<RegisterInput>({
     email: '',
     password: '',
@@ -98,34 +81,53 @@ const AuthScreen = () => {
   
   // Handle quick login 
   const handleQuickLogin = async () => {
-    try {
       setLoginButtonLoading(true);
-      await login(loginData);
-      // Explicitly navigate to home page after successful login
-      navigate(from, { replace: true }); 
-      toast({ title: "Login Successful" });
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: loginData.email,
+        password: loginData.password
+      });
+
+      if (authError) {
+        throw authError;
+      }
+      // Let useEffect handle navigation
+      toast({ title: "Login Attempted", description: "Checking credentials..." });
+
     } catch (err: any) {
+      console.error("Login error:", err);
       toast({
         title: "Login Failed",
-        description: err.message || "Please try again.",
+        description: err.message || "Invalid email or password. Please try again.",
         variant: "destructive"
       });
     } finally {
+      console.log('[AuthScreen handleQuickLogin] Reached finally block.');
       setLoginButtonLoading(false);
     }
   };
   
   // Handle social login click
   const handleSocialLoginClick = async (provider: SocialProvider) => {
+    setSocialButtonLoading(true);
     try {
-      setSocialButtonLoading(true);
       console.log(`Initiating login with ${provider}`);
-      
-      // Set the flag before redirecting - we'll check this when redirected back
       localStorage.setItem('attemptingSocialLogin', 'true');
       
-      await socialLogin(provider);
-      // Redirect will happen automatically via Supabase
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: provider.toLowerCase() as Provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth`,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
     } catch (err: any) {
       console.error('Social login error:', err);
       localStorage.removeItem('attemptingSocialLogin');
@@ -140,14 +142,49 @@ const AuthScreen = () => {
   
   // Handle quick registration
   const handleQuickRegister = async () => {
-    try {
       setRegisterButtonLoading(true);
-      await register(registerData);
-      navigate('/home');
-    } catch (err) {
+    try {
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+            email: registerData.email,
+            password: registerData.password,
+            options: {
+                // Pass user metadata for potential function hook usage
+                data: {
+                    first_name: registerData.firstName,
+                    last_name: registerData.lastName,
+                    phone: registerData.phoneNumber,
+                    // Role might be set by a trigger/hook based on signup
+                }
+            }
+        });
+
+        if (signUpError) {
+            throw signUpError;
+        }
+
+        // Check if confirmation is needed (no immediate session/identities)
+        if (signUpData.user && !signUpData.session && signUpData.user.identities?.length === 0) {
+             toast({
+                title: "Confirmation Email Sent",
+                description: "Please check your email to complete registration.",
+            });
+        } else if (signUpData.session) {
+             // Session created (auto-confirm or existing user re-auth)
+             toast({ title: "Registration Successful", description: "Logging you in..." });
+             // Let useEffect handle navigation
+        } else {
+             // Handle other cases if necessary, e.g., user exists but needs login
+             toast({
+                title: "Registration Info Submitted",
+                description: "If you have an account, please log in. Otherwise, check your email.",
+            });
+        }
+
+    } catch (err: any) {
+        console.error("Registration error:", err);
       toast({
         title: "Registration Failed",
-        description: "Please try again.",
+            description: err.message || "An error occurred. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -198,6 +235,7 @@ const AuthScreen = () => {
                       className="pl-10" 
                       value={loginData.email}
                       onChange={handleLoginChange}
+                      required
                     />
                   </div>
                 </div>
@@ -219,13 +257,14 @@ const AuthScreen = () => {
                       className="pl-10" 
                       value={loginData.password}
                       onChange={handleLoginChange}
+                      required
                     />
                   </div>
                 </div>
                 
                 <Button 
-                  type="button" 
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6"
+                  type="submit" 
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2"
                   disabled={loginButtonLoading}
                   onClick={handleQuickLogin}
                 >
@@ -245,12 +284,11 @@ const AuthScreen = () => {
                   <Button 
                     type="button" 
                     variant="outline" 
-                    className="justify-center"
+                    className="justify-center w-full flex items-center"
                     onClick={() => handleSocialLoginClick(SocialProvider.GOOGLE)}
                     disabled={socialButtonLoading}
                   >
-                    <FcGoogle className="mr-2 h-4 w-4" />
-                    Continue with Google
+                    {socialButtonLoading ? 'Processing...' : <><FcGoogle className="mr-2 h-5 w-5" /> Continue with Google</>}
                   </Button>
                 </div>
               </div>
@@ -258,58 +296,49 @@ const AuthScreen = () => {
             
             <TabsContent value="register">
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="firstName">First name</Label>
+                  <Label htmlFor="reg-firstName">First Name</Label>
                     <div className="relative">
                       <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                       <Input 
-                        id="firstName" 
+                      id="reg-firstName" 
                         name="firstName"
-                        placeholder="First name"
+                      type="text" 
+                      placeholder="First Name"
                         className="pl-10" 
                         value={registerData.firstName}
                         onChange={handleRegisterChange}
+                      required
                       />
                     </div>
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="lastName">Last name</Label>
+                  <Label htmlFor="reg-lastName">Last Name</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                     <Input 
-                      id="lastName" 
+                      id="reg-lastName" 
                       name="lastName"
-                      placeholder="Last name" 
+                      type="text" 
+                      placeholder="Last Name"
+                      className="pl-10" 
                       value={registerData.lastName}
                       onChange={handleRegisterChange}
+                      required
                     />
                   </div>
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="regEmail">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <Input 
-                      id="regEmail" 
-                      name="email"
-                      type="email" 
-                      placeholder="Your email address"
-                      className="pl-10" 
-                      value={registerData.email}
-                      onChange={handleRegisterChange}
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                  <Label htmlFor="reg-phoneNumber">Phone Number</Label>
                   <div className="relative">
                     <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                     <Input 
-                      id="phoneNumber" 
+                      id="reg-phoneNumber" 
                       name="phoneNumber"
-                      placeholder="Your phone number"
+                      type="tel"
+                      placeholder="Phone Number"
                       className="pl-10" 
                       value={registerData.phoneNumber}
                       onChange={handleRegisterChange}
@@ -318,50 +347,47 @@ const AuthScreen = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="regPassword">Password</Label>
+                  <Label htmlFor="reg-email">Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input 
+                      id="reg-email" 
+                      name="email"
+                      type="email" 
+                      placeholder="Your email address"
+                      className="pl-10" 
+                      value={registerData.email}
+                      onChange={handleRegisterChange}
+                      required
+                    />
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="reg-password">Password</Label>
                   <div className="relative">
                     <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                     <Input 
-                      id="regPassword" 
+                      id="reg-password" 
                       name="password"
                       type="password" 
                       placeholder="Create a password"
                       className="pl-10" 
                       value={registerData.password}
                       onChange={handleRegisterChange}
+                      required
                     />
                   </div>
                 </div>
                 
                 <Button 
                   type="button" 
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 mt-4"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2"
                   disabled={registerButtonLoading}
                   onClick={handleQuickRegister}
                 >
                   {registerButtonLoading ? 'Registering...' : 'Register'}
                 </Button>
-                
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-300"></div>
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-gray-500">Or continue with</span>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 gap-3">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    className="bg-blue-50 text-blue-800 hover:bg-blue-100"
-                    onClick={() => navigate('/home')}
-                  >
-                    <Facebook className="mr-2 h-4 w-4" />
-                    Skip Registration
-                  </Button>
-                </div>
               </div>
             </TabsContent>
           </Tabs>

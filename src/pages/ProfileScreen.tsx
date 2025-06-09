@@ -16,7 +16,7 @@ import {
 import NavBar from '@/components/NavBar';
 import { useUser } from '@/context/UserContext';
 import { toast } from 'sonner';
-import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 
 const ProfileMenuItem = ({ icon: Icon, label, onClick }) => (
   <button
@@ -36,7 +36,6 @@ const ProfileScreen = () => {
   const fileInputRef = useRef(null);
   const [profileImage, setProfileImage] = useState(null);
   const { userInfo, loading: userLoading } = useUser();
-  const { logout } = useAuth();
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -51,7 +50,10 @@ const ProfileScreen = () => {
 
   const handleLogout = async () => {
     try {
-      await logout();
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        throw error;
+      }
       toast.success('Logged out successfully');
       navigate('/auth', { replace: true });
     } catch (error) {

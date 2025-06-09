@@ -9,12 +9,15 @@ import {
   AlertCircle,
   Globe,
   User,
-  Send
+  Send,
+  Loader2
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
 
 interface DocumentState {
   certificatCalificare: boolean;
@@ -77,13 +80,16 @@ const DocumentUploadItem = ({
 const MasseurDocumentsScreen = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const initialFormData = location.state?.initialFormData || {};
+  const { authUser } = useAuth();
+  
+  // Get application data passed from signup screen
+  const applicationData = location.state?.applicationData;
   
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    languages: '',
-    ...initialFormData
+    phone: '',
+    languages: ''
   });
 
   const [documents, setDocuments] = useState<DocumentState>({
@@ -98,14 +104,57 @@ const MasseurDocumentsScreen = () => {
   const [errors, setErrors] = useState({
     firstName: '',
     lastName: '',
+    phone: '',
     languages: ''
   });
 
-  const handleInputChange = (e) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  // Redirect if no application data
+  useEffect(() => {
+    console.log("MasseurDocumentsScreen mounted");
+    console.log("Full location object:", location);
+    console.log("Location state:", location.state);
+    console.log("Application data received:", applicationData);
+    console.log("Type of applicationData:", typeof applicationData);
+    console.log("Is applicationData truthy?", !!applicationData);
+    
+    // Add a small delay to ensure state is properly set
+    const checkData = setTimeout(() => {
+      console.log("Delayed check - applicationData:", applicationData);
+      
+      setDataLoading(false);
+      
+      if (!applicationData) {
+        console.log("No application data found, redirecting to signup");
+        toast.error("No application data found. Please start from the beginning.");
+        navigate('/masseur-signup');
+      } else {
+        console.log("Application data found, staying on documents screen");
+      }
+    }, 100);
+
+    return () => clearTimeout(checkData);
+  }, [applicationData, navigate, location.state]);
+
+  // Show loading while checking for application data
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center">
+          <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+          <span>Loading application data...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     // Clear error when user types
-    if (errors[name]) {
+    if (errors[name as keyof typeof errors]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
   };
@@ -120,6 +169,7 @@ const MasseurDocumentsScreen = () => {
     const newErrors = {
       firstName: '',
       lastName: '',
+      phone: '',
       languages: ''
     };
 
@@ -130,6 +180,11 @@ const MasseurDocumentsScreen = () => {
 
     if (!formData.lastName.trim()) {
       newErrors.lastName = 'Last name is required';
+      valid = false;
+    }
+
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Phone number is required';
       valid = false;
     }
 
@@ -146,14 +201,115 @@ const MasseurDocumentsScreen = () => {
     return Object.values(documents).every(value => value === true);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (validateForm() && allDocumentsUploaded()) {
-      // Navigate to the status screen instead of showing a toast
+    console.log("=== STARTING FORM SUBMISSION ===");
+    
+    if (!authUser) {
+      console.error("No authenticated user found");
+      toast.error("Authentication Error", { description: "You must be logged in." });
+      navigate('/auth');
+      return;
+    }
+
+    if (!applicationData) {
+      console.error("No application data found");
+      toast.error("No application data found");
+      return;
+    }
+    
+    console.log("Application data received:", applicationData);
+    console.log("Form data:", formData);
+    console.log("Documents:", documents);
+    
+    if (!validateForm() || !allDocumentsUploaded()) {
+      if (!allDocumentsUploaded()) {
+        console.error("Not all documents uploaded");
+        toast.error('Please upload all required documents');
+      }
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      console.log("=== PREPARING DATABASE INSERT ===");
+      
+      // Get massage type names from IDs
+      const { data: massageTypesData } = await supabase
+        .from('massage_types')
+        .select('id, name')
+        .in('id', applicationData.selectedTypeIds);
+      
+      const massageTypeNames = massageTypesData?.map(type => type.name) || [];
+      
+      // 1. Prepare data for masseuses table with all information
+      const masseuseData = {
+        masseuse_id: authUser.id, 
+        bio: applicationData.bio,
+        location_lat: applicationData.latitude,
+        location_long: applicationData.longitude,
+        address: applicationData.address,
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+        phone: formData.phone,
+        massage_types: massageTypeNames,
+        is_available: false,
+        status: 'pending',
+        documents: {
+          ...documents,
+          languages: formData.languages
+        }
+      };
+
+      console.log("Masseur data to insert:", masseuseData);
+
+      // 2. Insert into masseuses table
+      console.log("=== INSERTING INTO MASSEUSES TABLE ===");
+      const { data: insertedData, error: masseuseError } = await supabase
+        .from('masseuses')
+        .insert([masseuseData])
+        .select(); 
+
+      console.log("Insert result:", { data: insertedData, error: masseuseError });
+
+      if (masseuseError) {
+        console.error("Masseur insert error:", masseuseError);
+        if (masseuseError.code === '23505') { 
+          toast.error("Application Failed", { description: "Masseur application already exists for this user." });
+        } else {
+          toast.error("Application Failed", { description: `Error saving application: ${masseuseError.message}` });
+        }
+        throw masseuseError;
+      }
+
+      console.log("=== MASSEUR INSERTED SUCCESSFULLY ===");
+
+      // 3. Also insert into masseuse_massage_types for backward compatibility
+      const typesToInsert = applicationData.selectedTypeIds.map((typeId: number) => ({
+        masseuse_id: authUser.id,
+        massage_type_id: typeId,
+      }));
+
+      if (typesToInsert.length > 0) {
+        await supabase
+          .from('masseuse_massage_types')
+          .insert(typesToInsert);
+      }
+
+      console.log("=== APPLICATION SUBMISSION COMPLETE ===");
+
+      toast.success("Application Submitted", { 
+        description: "Your masseur application has been submitted for review." 
+      });
+      
       navigate('/masseur-status');
-    } else if (!allDocumentsUploaded()) {
-      toast.error('Please upload all required documents');
+      
+    } catch (err) {
+      console.error("=== APPLICATION SUBMISSION ERROR ===", err);
+      toast.error("Submission failed", { description: "Please try again." });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -208,6 +364,21 @@ const MasseurDocumentsScreen = () => {
                 />
                 {errors.lastName && (
                   <p className="mt-1 text-sm text-red-600">{errors.lastName}</p>
+                )}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <Input
+                  type="text"
+                  name="phone"
+                  placeholder="123-456-7890"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  className={`${errors.phone ? 'border-red-500' : ''}`}
+                />
+                {errors.phone && (
+                  <p className="mt-1 text-sm text-red-600">{errors.phone}</p>
                 )}
               </div>
               
@@ -296,10 +467,19 @@ const MasseurDocumentsScreen = () => {
             <Button 
               type="submit" 
               className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-              disabled={!allDocumentsUploaded()}
+              disabled={!allDocumentsUploaded() || isSubmitting}
             >
-              <Send className="mr-2 h-5 w-5" />
-              Submit Application
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Submitting Application...
+                </>
+              ) : (
+                <>
+                  <Send className="mr-2 h-5 w-5" />
+                  Submit Application
+                </>
+              )}
             </Button>
           </div>
         </form>

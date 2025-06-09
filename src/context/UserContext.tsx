@@ -26,23 +26,23 @@ export const UserProvider = ({ children }) => {
   });
 
   // Get authentication info from AuthContext
-  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { authUser, userProfile, isAuthenticated, loading: authLoading } = useAuth();
 
   // Update userInfo when auth user changes
   useEffect(() => {
-    if (isAuthenticated && user) {
-      // Use firstName and lastName directly from AuthContext's user object
+    if (isAuthenticated && authUser && userProfile) {
+      // Use firstName and lastName from userProfile (database) instead of authUser
       setUserInfo({
-        firstName: user.firstName || '',
-        lastName: user.lastName || '',
-        phone: user.phoneNumber || '',
-        email: user.email || ''
+        firstName: userProfile.first_name || '',
+        lastName: userProfile.last_name || '',
+        phone: authUser.phone || '',
+        email: authUser.email || ''
       });
       
       console.log('UserContext: Updated user info from auth context', { 
-        firstName: user.firstName, 
-        lastName: user.lastName, 
-        email: user.email 
+        firstName: userProfile.first_name, 
+        lastName: userProfile.last_name, 
+        email: authUser.email 
       });
     } else {
       // Reset to default when logged out
@@ -53,7 +53,7 @@ export const UserProvider = ({ children }) => {
         email: ''
       });
     }
-  }, [user, isAuthenticated]);
+  }, [authUser, userProfile, isAuthenticated]);
 
   // Allow updating with partial info
   const updateUserInfo = (info: Partial<UserInfo>) => {

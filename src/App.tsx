@@ -5,8 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { UserProvider } from "@/context/UserContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { MapProvider } from "@/context/MapContext";
 import { useEffect } from "react";
 import { saveCurrentRoute, updateLastActiveTimestamp } from "@/services/AppStateService";
+import { UserRole } from "@/services/AuthService";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import SplashScreen from "./pages/SplashScreen";
@@ -28,6 +30,10 @@ import MasseurDocumentsScreen from './pages/MasseurDocumentsScreen';
 import MasseurStatusScreen from './pages/MasseurStatusScreen';
 import MasseurDashboardScreen from './pages/MasseurDashboardScreen';
 import UnauthorizedScreen from "./pages/UnauthorizedScreen";
+import AdminPanelScreen from "./pages/AdminPanelScreen";
+import AdminMasseurApplicationsScreen from "./pages/AdminMasseurApplicationsScreen";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import MasseurProtectedRoute from "@/components/auth/MasseurProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -75,39 +81,57 @@ const App = () => (
     <TooltipProvider>
       <AuthProvider>
         <UserProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <RouteTracker />
-            <Routes>
-              {/* Public routes */}
-              <Route path="/" element={<Index />} />
-              <Route path="/splash" element={<SplashScreen />} />
-              <Route path="/auth" element={<AuthScreen />} />
-              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-              <Route path="/update-password" element={<UpdatePasswordPage />} />
-              <Route path="/unauthorized" element={<UnauthorizedScreen />} />
-              
-              {/* All routes are now public */}
-              <Route path="/home" element={<HomeScreen />} />
-              <Route path="/profile" element={<ProfileScreen />} />
-              <Route path="/profile/personal-info" element={<PersonalInfoScreen />} />
-              <Route path="/booking" element={<BookingScreen />} />
-              <Route path="/payment" element={<PaymentScreen />} />
-              <Route path="/tracking" element={<TrackingScreen />} />
-              <Route path="/rating" element={<RatingScreen />} />
-              <Route path="/bookings" element={<BookingsScreen />} />
-              <Route path="/payment-methods" element={<PaymentMethodsScreen />} />
-              <Route path="/order-details" element={<OrderDetailsScreen />} />
-              <Route path="/masseur-signup" element={<MasseurSignupScreen />} />
-              <Route path="/masseur-documents" element={<MasseurDocumentsScreen />} />
-              <Route path="/masseur-status" element={<MasseurStatusScreen />} />
-              <Route path="/masseur-dashboard" element={<MasseurDashboardScreen />} />
-              
-              {/* 404 route */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
+          <MapProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <RouteTracker />
+              <Routes>
+                {/* Public routes */}
+                <Route path="/" element={<Index />} />
+                <Route path="/splash" element={<SplashScreen />} />
+                <Route path="/auth" element={<AuthScreen />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/update-password" element={<UpdatePasswordPage />} />
+                <Route path="/unauthorized" element={<UnauthorizedScreen />} />
+                
+                {/* Routes for logged-in users (clients and masseurs) */}
+                <Route element={<ProtectedRoute allowedRoles={[UserRole.CLIENT, UserRole.MASSEUR]} />}>
+                  <Route path="/home" element={<HomeScreen />} />
+                  <Route path="/booking" element={<BookingScreen />} />
+                  <Route path="/payment" element={<PaymentScreen />} />
+                  <Route path="/tracking" element={<TrackingScreen />} />
+                  <Route path="/rating" element={<RatingScreen />} />
+                  <Route path="/bookings" element={<BookingsScreen />} />
+                  <Route path="/payment-methods" element={<PaymentMethodsScreen />} />
+                  <Route path="/order-details" element={<OrderDetailsScreen />} />
+                </Route>
+
+                {/* Routes for all authenticated users, including those in signup process */}
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/profile" element={<ProfileScreen />} />
+                  <Route path="/profile/personal-info" element={<PersonalInfoScreen />} />
+                  <Route path="/masseur-signup" element={<MasseurSignupScreen />} />
+                  <Route path="/masseur-documents" element={<MasseurDocumentsScreen />} />
+                  <Route path="/masseur-status" element={<MasseurStatusScreen />} />
+                </Route>
+                
+                {/* Masseur-only routes - checks masseuses table for approved status */}
+                <Route element={<MasseurProtectedRoute />}>
+                  <Route path="/masseur-dashboard" element={<MasseurDashboardScreen />} />
+                </Route>
+                
+                {/* Admin-only routes */}
+                <Route element={<ProtectedRoute allowedRoles={[UserRole.ADMIN]} />}>
+                  <Route path="/admin" element={<AdminPanelScreen />} />
+                  <Route path="/admin/applications" element={<AdminMasseurApplicationsScreen />} />
+                </Route>
+                
+                {/* 404 route */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </MapProvider>
         </UserProvider>
       </AuthProvider>
     </TooltipProvider>

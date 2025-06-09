@@ -1,147 +1,219 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Clock, Briefcase, Loader2 } from 'lucide-react';
+import { ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { setMasseurRegistered } from '@/services/MasseurService';
+import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
 
-const statusSteps = [
-  {
-    id: 'received',
-    title: 'Application Received',
-    description: 'We have received your application',
-    timing: 'Just now'
-  },
-  {
-    id: 'reviewing',
-    title: 'Documents Under Review',
-    description: 'Your documents are being reviewed by our team',
-    timing: 'In progress'
-  },
-  {
-    id: 'accepted',
-    title: 'Application Accepted',
-    description: 'Congratulations! Your application has been approved',
-    timing: 'Just completed'
-  }
-];
+interface MasseurApplication {
+  status: 'pending' | 'approved' | 'rejected';
+  bio: string;
+  location_lat: number;
+  location_long: number;
+}
 
 const MasseurStatusScreen = () => {
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState(0);
-  const [isComplete, setIsComplete] = useState(false);
+  const { authUser } = useAuth();
+  const [application, setApplication] = useState<MasseurApplication | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate progress of application review
-    const step1Timer = setTimeout(() => {
-      setCurrentStep(1);
-    }, 2000);
+    const fetchApplicationStatus = async () => {
+      if (!authUser) {
+        navigate('/auth');
+        return;
+      }
 
-    const step2Timer = setTimeout(() => {
-      setCurrentStep(2);
-      setIsComplete(true);
-      
-      // Set masseur as registered in local storage
-      setMasseurRegistered(true);
-    }, 6000);
+      try {
+        const { data, error } = await supabase
+          .from('masseuses')
+          .select('status, bio, location_lat, location_long')
+          .eq('masseuse_id', authUser.id)
+          .single();
 
-    const redirectTimer = setTimeout(() => {
-      navigate('/masseur-dashboard');
-    }, 8000);
-
-    return () => {
-      clearTimeout(step1Timer);
-      clearTimeout(step2Timer);
-      clearTimeout(redirectTimer);
+        if (error) {
+          if (error.code === 'PGRST116') {
+            // No application found
+            setApplication(null);
+          } else {
+            console.error('Error fetching application:', error);
+            toast.error('Error loading application status');
+          }
+        } else {
+          setApplication(data);
+        }
+      } catch (err) {
+        console.error('Error:', err);
+        toast.error('Error loading application status');
+      } finally {
+        setLoading(false);
+      }
     };
-  }, [navigate]);
+
+    fetchApplicationStatus();
+  }, [authUser, navigate]);
+
+  const getStatusInfo = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return {
+          icon: <Clock className="h-12 w-12 text-yellow-500" />,
+          title: 'Application Under Review',
+          description: 'Your masseur application is being reviewed by our admin team. We\'ll notify you once a decision is made.',
+          color: 'text-yellow-600',
+          bgColor: 'bg-yellow-50',
+          borderColor: 'border-yellow-200'
+        };
+      case 'approved':
+        return {
+          icon: <CheckCircle className="h-12 w-12 text-green-500" />,
+          title: 'Application Approved!',
+          description: 'Congratulations! Your masseur application has been approved. You can now access the masseur dashboard.',
+          color: 'text-green-600',
+          bgColor: 'bg-green-50',
+          borderColor: 'border-green-200'
+        };
+      case 'rejected':
+        return {
+          icon: <XCircle className="h-12 w-12 text-red-500" />,
+          title: 'Application Rejected',
+          description: 'Unfortunately, your masseur application was not approved at this time. You can submit a new application if you\'d like to try again.',
+          color: 'text-red-600',
+          bgColor: 'bg-red-50',
+          borderColor: 'border-red-200'
+        };
+      default:
+        return {
+          icon: <AlertCircle className="h-12 w-12 text-gray-500" />,
+          title: 'Unknown Status',
+          description: 'There was an issue loading your application status.',
+          color: 'text-gray-600',
+          bgColor: 'bg-gray-50',
+          borderColor: 'border-gray-200'
+        };
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center">
+          <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+          <span>Loading application status...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!application) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        {/* Header */}
+        <div className="bg-white px-4 py-4 flex items-center border-b border-gray-200">
+          <button
+            onClick={() => navigate('/home')}
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5 text-gray-600" />
+          </button>
+          <h1 className="text-lg font-semibold text-gray-900 ml-4">Masseur Application</h1>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-8 shadow-sm max-w-md w-full text-center">
+            <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">No Application Found</h2>
+            <p className="text-gray-600 mb-6">
+              You haven't submitted a masseur application yet. Would you like to apply to become a masseur?
+            </p>
+            <Button 
+              onClick={() => navigate('/masseur-signup')}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Apply to Become a Masseur
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const statusInfo = getStatusInfo(application.status);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
       <div className="bg-white px-4 py-4 flex items-center border-b border-gray-200">
-        <h1 className="text-lg font-semibold text-gray-900">Application Status</h1>
+        <button
+          onClick={() => navigate('/home')}
+          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+        >
+          <ArrowLeft className="h-5 w-5 text-gray-600" />
+        </button>
+        <h1 className="text-lg font-semibold text-gray-900 ml-4">Application Status</h1>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 p-4 overflow-y-auto pb-24">
-        <div className="bg-white rounded-lg p-5 shadow-sm mb-4">
-          <div className="flex items-center mb-4">
-            <div className="bg-blue-100 p-2 rounded-full">
-              <Briefcase className="h-6 w-6 text-blue-600" />
+      {/* Content */}
+      <div className="flex-1 p-4">
+        <div className={`bg-white rounded-lg p-8 shadow-sm border-2 ${statusInfo.borderColor} ${statusInfo.bgColor}`}>
+          <div className="text-center">
+            <div className="mb-4">
+              {statusInfo.icon}
             </div>
-            <div className="ml-3">
-              <h2 className="text-lg font-medium text-gray-900">Your Masseur Application</h2>
-              <p className="text-sm text-gray-500">
-                {isComplete 
-                  ? 'Your application has been approved!' 
-                  : 'We are processing your application'}
-              </p>
-            </div>
+            <h2 className={`text-2xl font-bold mb-2 ${statusInfo.color}`}>
+              {statusInfo.title}
+            </h2>
+            <p className="text-gray-600 mb-6">
+              {statusInfo.description}
+            </p>
+
+            {application.status === 'approved' && (
+              <Button 
+                onClick={() => navigate('/masseur-dashboard')}
+                className="bg-green-600 hover:bg-green-700 text-white mb-4"
+              >
+                Go to Masseur Dashboard
+              </Button>
+            )}
+
+            {application.status === 'rejected' && (
+              <Button 
+                onClick={() => navigate('/masseur-signup')}
+                className="bg-blue-600 hover:bg-blue-700 text-white mb-4"
+              >
+                Submit New Application
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Status Timeline */}
-        <div className="bg-white rounded-lg p-5 shadow-sm">
-          <div className="space-y-6">
-            {statusSteps.map((step, index) => (
-              <div key={step.id} className="relative">
-                {/* Connector Line */}
-                {index < statusSteps.length - 1 && (
-                  <div 
-                    className={`absolute left-4 top-8 bottom-0 w-0.5 ${
-                      index < currentStep ? 'bg-green-500' : 'bg-gray-200'
-                    }`} 
-                  />
-                )}
-                
-                <div className="flex">
-                  {/* Status Icon */}
-                  <div className={`relative z-10 flex items-center justify-center w-8 h-8 rounded-full mr-3 ${
-                    index < currentStep 
-                      ? 'bg-green-100' 
-                      : index === currentStep 
-                        ? 'bg-blue-100' 
-                        : 'bg-gray-100'
-                  }`}>
-                    {index < currentStep ? (
-                      <Check className={`h-4 w-4 text-green-600`} />
-                    ) : index === currentStep ? (
-                      currentStep === statusSteps.length - 1 ? (
-                        <Check className="h-4 w-4 text-blue-600" />
-                      ) : (
-                        <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
-                      )
-                    ) : (
-                      <Clock className="h-4 w-4 text-gray-400" />
-                    )}
-                  </div>
-                  
-                  {/* Status Content */}
-                  <div className="flex-1">
-                    <h3 className={`font-medium ${
-                      index <= currentStep ? 'text-gray-900' : 'text-gray-500'
-                    }`}>
-                      {step.title}
-                    </h3>
-                    <p className="text-sm text-gray-500 mt-1">{step.description}</p>
-                    <p className={`text-xs mt-1 ${
-                      index < currentStep 
-                        ? 'text-green-600' 
-                        : index === currentStep 
-                          ? 'text-blue-600' 
-                          : 'text-gray-400'
-                    }`}>
-                      {index < currentStep 
-                        ? 'Completed' 
-                        : index === currentStep 
-                          ? step.timing 
-                          : 'Pending'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {/* Application Details */}
+        <div className="bg-white rounded-lg p-6 shadow-sm mt-4">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Application Details</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Status</label>
+              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                application.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                application.status === 'approved' ? 'bg-green-100 text-green-800' :
+                'bg-red-100 text-red-800'
+              }`}>
+                {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
+              </span>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Bio</label>
+              <p className="text-sm text-gray-600 mt-1">{application.bio}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Location</label>
+              <p className="text-sm text-gray-600 mt-1">
+                {application.location_lat.toFixed(6)}, {application.location_long.toFixed(6)}
+              </p>
+            </div>
           </div>
         </div>
       </div>
